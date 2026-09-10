@@ -5,7 +5,7 @@
 `solution` 采用模块化单 Worker 架构，严格划分为 Gateway 层和 Adapter 层。
 
 ```text
-CCnew
+Client Application
    │
    │ HTTPS + Stable Public Contract
    ▼

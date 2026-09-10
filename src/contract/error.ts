@@ -1,19 +1,44 @@
+export type PublicErrorCode =
+  | 'AUTH_FAILED'
+  | 'AUTH_REQUIRED'
+  | 'UPSTREAM_ERROR'
+  | 'VALIDATION_ERROR';
+
 export interface PublicErrorResponse {
   ok: false;
   error: {
-    code: 'UPSTREAM_ERROR';
+    code: PublicErrorCode;
     message: string;
     requestId: string;
   };
 }
 
-export function upstreamErrorResponse(requestId: string): PublicErrorResponse {
+export class GatewayError extends Error {
+  constructor(
+    readonly status: 400 | 401,
+    readonly code: Exclude<PublicErrorCode, 'UPSTREAM_ERROR'>,
+    readonly publicMessage: string
+  ) {
+    super(publicMessage);
+    this.name = 'GatewayError';
+  }
+}
+
+export function publicErrorResponse(
+  code: PublicErrorCode,
+  message: string,
+  requestId: string
+): PublicErrorResponse {
   return {
     ok: false,
-    error: {
-      code: 'UPSTREAM_ERROR',
-      message: 'The upstream service could not complete the request',
-      requestId,
-    },
+    error: { code, message, requestId },
   };
+}
+
+export function upstreamErrorResponse(requestId: string): PublicErrorResponse {
+  return publicErrorResponse(
+    'UPSTREAM_ERROR',
+    'The upstream service could not complete the request',
+    requestId
+  );
 }

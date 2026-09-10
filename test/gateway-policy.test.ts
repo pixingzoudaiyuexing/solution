@@ -55,11 +55,11 @@ describe('gateway HTTP policy', () => {
     expect(response.headers.has('access-control-expose-headers')).toBe(false);
   });
 
-  it('does not expose unimplemented P0 routes as fake successes', async () => {
-    const login = await app.request('/api/v1/auth/login', { method: 'POST' }, env);
-    const me = await app.request('/api/v1/me', undefined, env);
+  it('does not expose out-of-scope routes', async () => {
+    const register = await app.request('/api/v1/auth/register', { method: 'POST' }, env);
+    const purchases = await app.request('/api/v1/purchases', undefined, env);
 
-    expect(login.status).toBe(404);
-    expect(me.status).toBe(404);
+    expect(register.status).toBe(404);
+    expect(purchases.status).toBe(404);
   });
 });

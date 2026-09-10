@@ -24,6 +24,71 @@
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
+## Phase 2A 已实现契约
+
+### Login
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+```
+
+Request：
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+`email` 必填且必须是有效邮箱格式；`password` 必填，长度为 8 至 1024 个字符。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "accessToken": "opaque-token",
+    "tokenType": "Bearer"
+  },
+  "requestId": "request-id"
+}
+```
+
+`accessToken` 来自 V2Board `auth_data`。Gateway 将其视为 opaque credential，不解析、不验证、不存储。
+
+### Current User
+
+```http
+GET /api/v1/me
+Authorization: Bearer <opaque-token>
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "email": "user@example.com"
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 只返回上述 Public DTO，不透传 V2Board user object。
+
+### Authentication Errors
+
+| HTTP | Code               | Message                | 场景 |
+| ---- | ------------------ | ---------------------- | ---- |
+| 400  | `VALIDATION_ERROR` | `Invalid request`      | Public payload 或 upstream validation 无效 |
+| 401  | `AUTH_REQUIRED`    | `Authentication required` | 缺少或无法识别 Bearer credential |
+| 401  | `AUTH_FAILED`      | `Authentication failed` | 凭据错误、账号禁用或 V2Board session 失效 |
+| 502  | `UPSTREAM_ERROR`   | 固定公共错误信息       | 上游 HTML、无效 JSON、超时或未知故障 |
+
 ## 错误响应规范
 统一错误响应格式：
 ```json

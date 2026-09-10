@@ -11,10 +11,13 @@
 - 通过 CF Tunnel + Access 严格保护真实后端入口。
 
 ## 当前实现状态
-当前仓库只包含 Phase 1 网关与安全策略骨架。`API-CONTRACT.md` 中的业务路由是后续实现目标，当前不会返回伪造业务数据。
+当前仓库已实现 Phase 2A Authentication & Identity Foundation：登录、当前用户身份查询，以及可供后续受保护路由复用的无状态 Authorization request context。`API-CONTRACT.md` 中其他业务路由仍是后续实现目标，当前不会返回伪造业务数据。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
+- `V2BOARD_BASE_URL`: V2Board API v1 基础地址，必须使用 HTTPS，例如 `https://private.example/api/v1/`；末尾缺少 `/` 时客户端会自动补齐。
+- `V2BOARD_ACCESS_CLIENT_ID`: 可选的 Cloudflare Access Service Token ID，必须与 Secret 成对配置。
+- `V2BOARD_ACCESS_CLIENT_SECRET`: 可选的 Cloudflare Access Service Token Secret，只能通过 Worker secret 配置，禁止提交到 Git。
 
 ## 目录结构规划
 - `src/`: 源代码
