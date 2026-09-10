@@ -6,6 +6,7 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardOrderQueryError,
   V2BoardTimeoutError,
   V2BoardValidationError,
 } from '../adapters/v2board/errors';
@@ -44,6 +45,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
         id
       ),
       504
+    );
+  }
+
+  if (err instanceof V2BoardOrderQueryError) {
+    return c.json(
+      publicErrorResponse(
+        'ORDER_QUERY_FAILED',
+        'Unable to retrieve orders',
+        id
+      ),
+      502
     );
   }
 

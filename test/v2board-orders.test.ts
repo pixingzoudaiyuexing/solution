@@ -1,0 +1,188 @@
+import { describe, expect, it, vi } from 'vitest';
+import { V2BoardClient } from '../src/adapters/v2board/client';
+import {
+  V2BoardOrderQueryError,
+  V2BoardTimeoutError,
+  V2BoardUpstreamError,
+} from '../src/adapters/v2board/errors';
+import { V2BoardOrdersAdapter } from '../src/adapters/v2board/orders';
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function createAdapter(fetcher: typeof fetch): V2BoardOrdersAdapter {
+  return new V2BoardOrdersAdapter(
+    new V2BoardClient(
+      { baseUrl: 'https://private.example/api/v1/' },
+      fetcher
+    )
+  );
+}
+
+function upstreamOrder(status: number, suffix: string): Record<string, unknown> {
+  return {
+    trade_no: `order-${suffix}`,
+    status,
+    total_amount: 1099,
+    created_at: 1704067200,
+    updated_at: suffix === 'adjusted' ? null : 1704153600,
+    plan_id: 7,
+    payment_id: 3,
+    callback_no: 'private-callback',
+    commission_balance: 200,
+    user: { uuid: 'private-user-uuid' },
+    payment: { config: 'private-payment-metadata' },
+  };
+}
+
+describe('V2BoardOrdersAdapter', () => {
+  it('returns an empty list when the user has no orders', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: [] }))
+    );
+
+    await expect(adapter.orders('opaque-token')).resolves.toEqual([]);
+  });
+
+  it('maps all V2Board statuses and strips internal fields', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: [
+          upstreamOrder(0, 'pending'),
+          upstreamOrder(1, 'processing'),
+          upstreamOrder(2, 'cancelled'),
+          upstreamOrder(3, 'completed'),
+          upstreamOrder(4, 'adjusted'),
+        ],
+        internal_meta: 'must-not-leak',
+      })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(adapter.orders('opaque-token')).resolves.toEqual([
+      {
+        id: 'order-pending',
+        status: 'pending',
+        amountMinor: 1099,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'order-processing',
+        status: 'processing',
+        amountMinor: 1099,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'order-cancelled',
+        status: 'cancelled',
+        amountMinor: 1099,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'order-completed',
+        status: 'completed',
+        amountMinor: 1099,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'order-adjusted',
+        status: 'adjusted',
+        amountMinor: 1099,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: null,
+      },
+    ]);
+
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://private.example/api/v1/user/order/fetch');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+  });
+
+  it('maps a JSON upstream error to an order query failure', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Database query failed' }, 500)
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardOrderQueryError
+    );
+  });
+
+  it('treats a non-object JSON error as an unknown upstream failure', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse('Database query failed', 500)
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it('normalizes an HTML upstream error', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<h1>Laravel exception</h1>', {
+          status: 500,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it('normalizes invalid JSON', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{invalid-json', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it('preserves the shared timeout error', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockRejectedValue(
+        new DOMException('The operation timed out', 'TimeoutError')
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardTimeoutError
+    );
+  });
+
+  it.each([
+    ['fractional amount', { ...upstreamOrder(0, 'bad-amount'), total_amount: 10.99 }],
+    ['unknown status', upstreamOrder(9, 'bad-status')],
+  ])('fails closed on %s', async (_case, order) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: [order] }))
+    );
+
+    await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+});

@@ -2,8 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { V2BoardAuthAdapter } from '../adapters/v2board/auth';
 import { V2BoardBusinessAdapter } from '../adapters/v2board/business';
-import { V2BoardClient } from '../adapters/v2board/client';
-import type { Env } from '../config/env';
+import { createV2BoardClient } from '../adapters/v2board/factory';
 import type { LoginSuccessResponse } from '../contract/auth';
 import { GatewayError } from '../contract/error';
 import type { CurrentUserSuccessResponse } from '../contract/user';
@@ -14,6 +13,7 @@ import {
   requireAuthorization,
   type GatewayContext,
 } from '../security/authorization';
+import { ordersRouter } from './v1/orders';
 
 const loginRequestSchema = z
   .object({
@@ -22,24 +22,12 @@ const loginRequestSchema = z
   })
   .strict();
 
-function v2boardClient(env: Env): V2BoardClient {
-  if (!env.V2BOARD_BASE_URL) {
-    throw new Error('V2Board is not configured');
-  }
-
-  return new V2BoardClient({
-    baseUrl: env.V2BOARD_BASE_URL,
-    accessClientId: env.V2BOARD_ACCESS_CLIENT_ID,
-    accessClientSecret: env.V2BOARD_ACCESS_CLIENT_SECRET,
-  });
+function authAdapter(env: GatewayContext['Bindings']): V2BoardAuthAdapter {
+  return new V2BoardAuthAdapter(createV2BoardClient(env));
 }
 
-function authAdapter(env: Env): V2BoardAuthAdapter {
-  return new V2BoardAuthAdapter(v2boardClient(env));
-}
-
-function businessAdapter(env: Env): V2BoardBusinessAdapter {
-  return new V2BoardBusinessAdapter(v2boardClient(env));
+function businessAdapter(env: GatewayContext['Bindings']): V2BoardBusinessAdapter {
+  return new V2BoardBusinessAdapter(createV2BoardClient(env));
 }
 
 const v1Router = new Hono<GatewayContext>();
@@ -99,5 +87,7 @@ v1Router.get('/resources', requireAuthorization, async (c) => {
   c.header('Cache-Control', 'no-store');
   return c.json(response);
 });
+
+v1Router.route('/orders', ordersRouter);
 
 export { v1Router };

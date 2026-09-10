@@ -46,11 +46,15 @@ export abstract class V2BoardAdapterBase {
   }
 
   protected assertAuthorizedResponse(response: Response): void {
-    if (response.status === 401 || response.status === 403) {
-      throw new V2BoardAuthenticationError();
-    }
+    this.assertAuthenticatedResponse(response);
     if (!response.ok) {
       throw new V2BoardUpstreamError();
+    }
+  }
+
+  protected assertAuthenticatedResponse(response: Response): void {
+    if (response.status === 401 || response.status === 403) {
+      throw new V2BoardAuthenticationError();
     }
   }
 }

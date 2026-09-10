@@ -25,3 +25,10 @@ export class V2BoardTimeoutError extends Error {
     this.name = 'V2BoardTimeoutError';
   }
 }
+
+export class V2BoardOrderQueryError extends Error {
+  constructor() {
+    super('V2Board order query failed');
+    this.name = 'V2BoardOrderQueryError';
+  }
+}
