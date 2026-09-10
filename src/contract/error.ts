@@ -2,6 +2,7 @@ export type PublicErrorCode =
   | 'AUTH_FAILED'
   | 'AUTH_REQUIRED'
   | 'UPSTREAM_ERROR'
+  | 'UPSTREAM_TIMEOUT'
   | 'VALIDATION_ERROR';
 
 export interface PublicErrorResponse {
@@ -16,7 +17,7 @@ export interface PublicErrorResponse {
 export class GatewayError extends Error {
   constructor(
     readonly status: 400 | 401,
-    readonly code: Exclude<PublicErrorCode, 'UPSTREAM_ERROR'>,
+    readonly code: 'AUTH_REQUIRED' | 'VALIDATION_ERROR',
     readonly publicMessage: string
   ) {
     super(publicMessage);

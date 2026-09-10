@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { LoginRequest, LoginResponseData } from '../../contract/auth';
 import type { CurrentUserResponseData } from '../../contract/user';
 import { V2BoardClient } from './client';
+import { V2BoardAdapterBase } from './base';
 import {
   V2BoardAuthenticationError,
   V2BoardUpstreamError,
@@ -10,17 +11,32 @@ import {
 
 const authDataSchema = z
   .object({ auth_data: z.string().min(1) })
-  .passthrough();
+  .strip();
 const loginEnvelopeSchema = z
   .object({ data: authDataSchema })
-  .passthrough();
+  .strip();
+
+const bannedSchema = z
+  .union([z.boolean(), z.literal(0), z.literal(1)])
+  .transform((value) => value === true || value === 1);
 
 const userDataSchema = z
-  .object({ email: z.string().email() })
-  .passthrough();
+  .object({
+    email: z.string().email(),
+    expired_at: z.number().int().nonnegative().max(253402300799).nullable(),
+    banned: bannedSchema,
+  })
+  .strip();
 const userEnvelopeSchema = z
   .object({ data: userDataSchema })
-  .passthrough();
+  .strip();
+
+const errorResponseSchema = z
+  .object({
+    message: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .strip();
 
 // V2Board reports these authentication failures with HTTP 500.
 const AUTH_FAILURE_MESSAGES = new Set([
@@ -39,12 +55,12 @@ const AUTH_FAILURE_PREFIXES = [
 ];
 
 function authFailureMessage(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') {
+  const parsed = errorResponseSchema.safeParse(payload);
+  if (!parsed.success) {
     return undefined;
   }
 
-  const record = payload as Record<string, unknown>;
-  return [record.message, record.error].find(
+  return [parsed.data.message, parsed.data.error].find(
     (value): value is string => typeof value === 'string'
   );
 }
@@ -57,11 +73,26 @@ function isAuthenticationFailure(message: string): boolean {
   );
 }
 
-export class V2BoardAuthAdapter {
-  constructor(private readonly client: V2BoardClient) {}
+function accountStatus(
+  banned: boolean,
+  expiredAt: number | null
+): CurrentUserResponseData['status'] {
+  if (banned) {
+    return 'disabled';
+  }
+  if (expiredAt !== null && expiredAt <= Math.floor(Date.now() / 1000)) {
+    return 'expired';
+  }
+  return 'active';
+}
+
+export class V2BoardAuthAdapter extends V2BoardAdapterBase {
+  constructor(client: V2BoardClient) {
+    super(client);
+  }
 
   async login(request: LoginRequest): Promise<LoginResponseData> {
-    const payload = await this.requestJson('passport/auth/login', {
+    const { response, payload } = await this.requestJson('passport/auth/login', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -69,6 +100,8 @@ export class V2BoardAuthAdapter {
       },
       body: JSON.stringify(request),
     });
+
+    this.assertAuthenticationResponse(response, payload);
     const direct = authDataSchema.safeParse(payload);
     const envelope = loginEnvelopeSchema.safeParse(payload);
     let data: z.infer<typeof authDataSchema>;
@@ -87,13 +120,14 @@ export class V2BoardAuthAdapter {
   }
 
   async currentUser(authToken: string): Promise<CurrentUserResponseData> {
-    const payload = await this.requestJson('user/info', {
+    const { response, payload } = await this.requestJson('user/info', {
       method: 'GET',
       headers: {
         Accept: 'application/json',
         Authorization: authToken,
       },
     });
+    this.assertAuthorizedResponse(response);
     const direct = userDataSchema.safeParse(payload);
     const envelope = userEnvelopeSchema.safeParse(payload);
     let data: z.infer<typeof userDataSchema>;
@@ -105,29 +139,23 @@ export class V2BoardAuthAdapter {
       throw new V2BoardUpstreamError();
     }
 
-    return { email: data.email };
+    return {
+      email: data.email,
+      expiresAt:
+        data.expired_at === null
+          ? null
+          : new Date(data.expired_at * 1000).toISOString(),
+      status: accountStatus(data.banned, data.expired_at),
+    };
   }
 
-  private async requestJson(path: string, init: RequestInit): Promise<unknown> {
-    let response: Response;
-
-    try {
-      response = await this.client.fetch(path, init);
-    } catch {
-      throw new V2BoardUpstreamError();
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new V2BoardUpstreamError();
-    }
-
+  private assertAuthenticationResponse(
+    response: Response,
+    payload: unknown
+  ): void {
     if (response.ok) {
-      return payload;
+      return;
     }
-
     if (response.status === 400 || response.status === 422) {
       throw new V2BoardValidationError();
     }

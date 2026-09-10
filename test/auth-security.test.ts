@@ -13,6 +13,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function currentUserResponse(): Response {
+  return jsonResponse({
+    data: {
+      email: 'user@example.com',
+      expired_at: null,
+      banned: 0,
+    },
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -23,7 +33,7 @@ describe('authentication security regressions', () => {
     const authorizationHeaders: Array<string | null> = [];
     const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => {
       authorizationHeaders.push(new Headers(init?.headers).get('authorization'));
-      return Promise.resolve(jsonResponse({ data: { email: 'user@example.com' } }));
+      return Promise.resolve(currentUserResponse());
     });
     vi.stubGlobal('fetch', fetcher);
 

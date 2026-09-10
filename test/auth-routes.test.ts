@@ -21,6 +21,7 @@ function requestHeaders(): HeadersInit {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -179,11 +180,15 @@ describe('POST /api/v1/auth/login', () => {
 
 describe('GET /api/v1/me', () => {
   it('maps an authorized V2Board user to the public user DTO', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-11T00:00:00.000Z'));
     const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
         data: {
           email: 'user@example.com',
           uuid: 'must-not-leak',
+          expired_at: 1893456000,
+          banned: 0,
           balance: 10000,
           is_admin: true,
         },
@@ -205,7 +210,11 @@ describe('GET /api/v1/me', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
-      data: { email: 'user@example.com' },
+      data: {
+        email: 'user@example.com',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        status: 'active',
+      },
       requestId: 'request-id',
     });
     expect(response.headers.get('cache-control')).toBe('no-store');
@@ -258,6 +267,34 @@ describe('GET /api/v1/me', () => {
         requestId: 'request-id',
       },
     });
+  });
+
+  it('does not mistake a non-JSON Access 403 for user auth failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<h1>Access denied</h1>', {
+          status: 403,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      )
+    );
+
+    const response = await app.request(
+      '/api/v1/me',
+      {
+        headers: {
+          Authorization: 'Bearer opaque-token',
+          'cf-ray': 'request-id',
+        },
+      },
+      env
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.text();
+    expect(body).toContain('UPSTREAM_ERROR');
+    expect(body).not.toContain('Access denied');
   });
 
   it('normalizes an unknown upstream error', async () => {

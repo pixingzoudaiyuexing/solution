@@ -1,11 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { V2BoardAuthAdapter } from '../src/adapters/v2board/auth';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
   V2BoardAuthenticationError,
+  V2BoardTimeoutError,
   V2BoardUpstreamError,
   V2BoardValidationError,
 } from '../src/adapters/v2board/errors';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -135,7 +140,7 @@ describe('V2BoardAuthAdapter login', () => {
 
     await expect(
       adapter.login({ email: 'user@example.com', password: 'password123' })
-    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    ).rejects.toBeInstanceOf(V2BoardTimeoutError);
   });
 
   it('normalizes invalid JSON from a successful response', async () => {
@@ -156,11 +161,15 @@ describe('V2BoardAuthAdapter login', () => {
 
 describe('V2BoardAuthAdapter current user', () => {
   it('forwards the opaque token and maps only the public email field', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-11T00:00:00.000Z'));
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
         data: {
           email: 'user@example.com',
           uuid: 'private-uuid',
+          expired_at: 1893456000,
+          banned: 0,
           balance: 10000,
         },
       })
@@ -169,6 +178,8 @@ describe('V2BoardAuthAdapter current user', () => {
 
     await expect(adapter.currentUser('opaque-token')).resolves.toEqual({
       email: 'user@example.com',
+      expiresAt: '2030-01-01T00:00:00.000Z',
+      status: 'active',
     });
 
     const [url, init] = fetcher.mock.calls[0];
@@ -178,4 +189,31 @@ describe('V2BoardAuthAdapter current user', () => {
     expect(headers.get('authorization')).toBe('opaque-token');
     expect(headers.has('cookie')).toBe(false);
   });
+
+  it.each([
+    [1, 1, 'disabled'],
+    [0, 1, 'expired'],
+  ] as const)(
+    'maps banned=%s and expired_at=%s to %s',
+    async (banned, expiredAt, status) => {
+      const adapter = createAdapter(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          jsonResponse({
+            data: {
+              email: 'user@example.com',
+              expired_at: expiredAt,
+              banned,
+              uuid: 'private-uuid',
+            },
+          })
+        )
+      );
+
+      await expect(adapter.currentUser('opaque-token')).resolves.toEqual({
+        email: 'user@example.com',
+        expiresAt: '1970-01-01T00:00:01.000Z',
+        status,
+      });
+    }
+  );
 });

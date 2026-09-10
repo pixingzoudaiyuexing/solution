@@ -72,13 +72,17 @@ Success：
 {
   "ok": true,
   "data": {
-    "email": "user@example.com"
+    "email": "user@example.com",
+    "expiresAt": "2030-01-01T00:00:00.000Z",
+    "status": "active"
   },
   "requestId": "request-id"
 }
 ```
 
 Gateway 只返回上述 Public DTO，不透传 V2Board user object。
+
+`expiresAt` 为 ISO 8601 时间或 `null`；`status` 为 `active`、`expired`、`disabled` 之一。V2Board UUID、余额、套餐 ID 等字段不属于此 Public DTO。
 
 ### Authentication Errors
 
@@ -87,7 +91,94 @@ Gateway 只返回上述 Public DTO，不透传 V2Board user object。
 | 400  | `VALIDATION_ERROR` | `Invalid request`      | Public payload 或 upstream validation 无效 |
 | 401  | `AUTH_REQUIRED`    | `Authentication required` | 缺少或无法识别 Bearer credential |
 | 401  | `AUTH_FAILED`      | `Authentication failed` | 凭据错误、账号禁用或 V2Board session 失效 |
-| 502  | `UPSTREAM_ERROR`   | 固定公共错误信息       | 上游 HTML、无效 JSON、超时或未知故障 |
+| 502  | `UPSTREAM_ERROR`   | 固定公共错误信息       | 上游 HTML、无效 JSON 或未知故障 |
+| 504  | `UPSTREAM_TIMEOUT` | `The upstream service timed out` | 上游请求超时 |
+
+## Phase 2B 已实现契约
+
+所有 Phase 2B 接口都要求：
+
+```http
+Authorization: Bearer <opaque-token>
+```
+
+### Products
+
+```http
+GET /api/v1/products
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "products": [
+      {
+        "id": "7",
+        "name": "Pro Plan",
+        "dataAllowanceGb": 100,
+        "speedLimitMbps": null,
+        "available": true,
+        "prices": [
+          {
+            "billingPeriod": "month",
+            "amountMinor": 990
+          }
+        ]
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`amountMinor` 使用 V2Board 配置货币的最小单位。`billingPeriod` 可为 `month`、`quarter`、`halfYear`、`year`、`twoYears`、`threeYears`、`oneTime`。流量重置价格不属于本接口。
+
+### Public Resources
+
+```http
+GET /api/v1/resources
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "resources": [
+      {
+        "id": "3",
+        "name": "Hong Kong 01",
+        "category": "vmess",
+        "status": "online"
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`status` 为 `online` 或 `offline`。Gateway 不返回节点 host、port、server key、协议配置或其他 V2Board 原始字段。
+
+### Upstream Timeout
+
+所有 V2Board outbound request 默认在 10 秒后由 AbortController 中止：
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "UPSTREAM_TIMEOUT",
+    "message": "The upstream service timed out",
+    "requestId": "request-id"
+  }
+}
+```
+
+HTTP status 为 `504`。
 
 ## 错误响应规范
 统一错误响应格式：

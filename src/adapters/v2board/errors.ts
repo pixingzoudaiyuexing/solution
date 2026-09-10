@@ -18,3 +18,10 @@ export class V2BoardUpstreamError extends Error {
     this.name = 'V2BoardUpstreamError';
   }
 }
+
+export class V2BoardTimeoutError extends Error {
+  constructor() {
+    super('V2Board upstream request timed out');
+    this.name = 'V2BoardTimeoutError';
+  }
+}

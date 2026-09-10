@@ -6,6 +6,7 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardTimeoutError,
   V2BoardValidationError,
 } from '../adapters/v2board/errors';
 import { requestId } from './request-id';
@@ -32,6 +33,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('VALIDATION_ERROR', 'Invalid request', id),
       400
+    );
+  }
+
+  if (err instanceof V2BoardTimeoutError) {
+    return c.json(
+      publicErrorResponse(
+        'UPSTREAM_TIMEOUT',
+        'The upstream service timed out',
+        id
+      ),
+      504
     );
   }
 

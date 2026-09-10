@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { V2BoardClient } from '../src/adapters/v2board/client';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('V2BoardClient', () => {
   it('forces manual redirects and forwards only explicitly allowed headers', async () => {
@@ -79,5 +83,48 @@ describe('V2BoardClient', () => {
     expect(
       () => new V2BoardClient({ baseUrl: 'http://private.example/' })
     ).toThrow('Upstream base URL must use HTTPS');
+  });
+
+  it('aborts an outbound request after the configured timeout', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      () => new Promise((resolve) => {
+        setTimeout(() => resolve(new Response('{}')), 50);
+      })
+    );
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/', timeoutMs: 10 },
+      fetcher
+    );
+
+    const assertion = expect(client.fetch('user/info')).rejects.toThrow(
+      'Upstream request timed out'
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+
+    const [, init] = fetcher.mock.calls[0];
+    expect(init?.signal?.aborted).toBe(true);
+  });
+
+  it('uses a 10 second timeout by default', async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(
+      () => new Promise((resolve) => {
+        setTimeout(() => resolve(new Response('{}')), 10_001);
+      })
+    );
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/' },
+      fetcher
+    );
+
+    const assertion = expect(client.fetch('user/info')).rejects.toThrow(
+      'Upstream request timed out'
+    );
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
   });
 });
