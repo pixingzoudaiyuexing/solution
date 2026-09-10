@@ -281,7 +281,7 @@ Success 使用与 Orders List 相同的单个 Order DTO：
 }
 ```
 
-`POST /api/v1/orders/{id}/checkout` 及 payment、callback、refund、coupon、subscription 路由均未实现。
+payment callback、refund、coupon、subscription 路由均未实现。
 
 错误：
 
@@ -294,6 +294,130 @@ Success 使用与 Orders List 相同的单个 Order DTO：
 | 502  | `ORDER_QUERY_FAILED` | V2Board 返回可识别的订单查询错误 |
 | 502  | `UPSTREAM_ERROR`     | HTML、无效 JSON 或 malformed order response |
 | 504  | `UPSTREAM_TIMEOUT`   | V2Board 请求超时 |
+
+## Phase 2C.4 已实现契约
+
+以下接口均要求：
+
+```http
+Authorization: Bearer <opaque-token>
+```
+
+### Payment Methods
+
+```http
+GET /api/v1/billing/methods
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "3",
+      "name": "支付宝",
+      "icon": "https://cdn.example/alipay.png",
+      "fee": {
+        "fixedMinor": 25,
+        "percent": 0.5
+      }
+    }
+  ],
+  "requestId": "request-id"
+}
+```
+
+`id` 是公开合同中的 opaque string，用于后续 checkout；Client Application 不需要理解其 V2Board 内部类型。Gateway 只返回可用渠道，并剥离 plugin class、UUID、notify domain、merchant 配置和其他 V2Board Payment 字段。不安全的 icon URL 返回 `null`。
+
+### Checkout
+
+```http
+POST /api/v1/orders/{id}/checkout
+Content-Type: application/json
+```
+
+Request：
+
+```json
+{
+  "paymentMethodId": "3"
+}
+```
+
+`paymentMethodId` 必须来自 Payment Methods API。请求不接受 provider token、return URL、merchant 参数或其他额外字段。
+
+Success 根据 V2Board 当前支付动作返回以下三种 Public DTO 之一：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "type": "finished"
+  },
+  "requestId": "request-id"
+}
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "type": "qrcode",
+    "data": "opaque QR payload"
+  },
+  "requestId": "request-id"
+}
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "type": "redirect",
+    "target": "https://pay.example/checkout"
+  },
+  "requestId": "request-id"
+}
+```
+
+映射规则：
+
+| V2Board type | Public type | 约束 |
+| ------------ | ----------- | ---- |
+| `-1` | `finished` | 仅接受 V2Board 明确返回 `data=true`；订单 paid 处理仍由 V2Board 完成 |
+| `0` | `qrcode` | `data` 是 1 至 4096 字符的 opaque QR 内容，可以是 HTTPS URL、支付 URI 或其他 provider QR 内容，但不得包含控制字符 |
+| `1` | `redirect` | `target` 必须是无 userinfo 的公共 HTTPS URL，拒绝 localhost、私有/特殊用途 IP 和隐藏 V2Board host |
+| `2` | `finished` | 仅接受 V2Board 明确返回 `data=true` |
+
+未知 type、malformed payload 或不安全 redirect target 均 fail closed 为 `PAYMENT_CREATE_FAILED`。v1 不提供推测性的 `form` 类型，也不放行未经固定 fork 源码证明的自定义 redirect scheme。
+
+Checkout 仅在请求 `Origin` 与 `FRONTEND_ORIGINS` 精确匹配且使用 HTTPS 时转发该 Origin，以保留 V2Board 原生移动端 return 行为。Gateway 不转发浏览器提供的 `Host`、`X-Forwarded-Host`、`X-Original-Host` 或 `X-Forwarded-Proto`。桌面 QR 流程不依赖浏览器 return navigation。
+
+Payment Provider callback 直接进入 V2Board。Gateway 不提供 callback/webhook 路由，不验证 provider 签名，不修改订单状态，也不保存 payment session 或 QR 状态。Client Application 使用已有 Order Detail API 查询最终订单状态。
+
+### Order Expiration Compatibility
+
+固定兼容基线 `wyx2685/v2board` `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88` 通过异步订单任务取消创建超过两小时的 pending 订单，但当前订单 API 没有返回权威 expiry 字段，checkout 也没有同步拒绝达到该时间的 pending 订单。因此当前合同状态为：
+
+```text
+NEEDS_V2BOARD_EXPIRY_PATCH
+```
+
+本版本不提供 `expiresAt`，也不实现 `ORDER_EXPIRED`，Gateway 不创建独立过期计时器。最低上游补丁要求是：V2Board 返回权威 `expires_at`，并在 checkout 内按同一权威规则拒绝过期订单。
+
+### Payment Errors
+
+| HTTP | Code                         | 场景 |
+| ---- | ---------------------------- | ---- |
+| 400  | `VALIDATION_ERROR`           | order ID、JSON body 或 payment method ID 无效 |
+| 401  | `AUTH_REQUIRED`              | 缺少或无法识别 Bearer credential |
+| 401  | `AUTH_FAILED`                | V2Board 拒绝当前 credential |
+| 422  | `PAYMENT_METHOD_UNAVAILABLE` | V2Board 明确确认支付渠道不可用 |
+| 502  | `PAYMENT_CREATE_FAILED`      | V2Board 可识别的支付创建失败、未知 type 或不安全/malformed 支付动作 |
+| 502  | `UPSTREAM_ERROR`             | HTML、无效 JSON 或无法安全分类的上游故障 |
+| 504  | `UPSTREAM_TIMEOUT`           | V2Board 请求超时；Gateway 不自动重试 checkout |
 
 ## 错误响应规范
 统一错误响应格式：

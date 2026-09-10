@@ -46,3 +46,17 @@ export class V2BoardOrderNotFoundError extends Error {
     this.name = 'V2BoardOrderNotFoundError';
   }
 }
+
+export class V2BoardPaymentMethodUnavailableError extends Error {
+  constructor() {
+    super('V2Board payment method unavailable');
+    this.name = 'V2BoardPaymentMethodUnavailableError';
+  }
+}
+
+export class V2BoardPaymentCreateError extends Error {
+  constructor() {
+    super('V2Board payment creation failed');
+    this.name = 'V2BoardPaymentCreateError';
+  }
+}

@@ -9,6 +9,8 @@ import {
   V2BoardOrderCreateError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
+  V2BoardPaymentCreateError,
+  V2BoardPaymentMethodUnavailableError,
   V2BoardTimeoutError,
   V2BoardValidationError,
 } from '../adapters/v2board/errors';
@@ -76,6 +78,28 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('ORDER_NOT_FOUND', 'Order not found', id),
       404
+    );
+  }
+
+  if (err instanceof V2BoardPaymentMethodUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'PAYMENT_METHOD_UNAVAILABLE',
+        'Payment method unavailable',
+        id
+      ),
+      422
+    );
+  }
+
+  if (err instanceof V2BoardPaymentCreateError) {
+    return c.json(
+      publicErrorResponse(
+        'PAYMENT_CREATE_FAILED',
+        'Unable to create payment',
+        id
+      ),
+      502
     );
   }
 

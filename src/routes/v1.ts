@@ -14,6 +14,7 @@ import {
   type GatewayContext,
 } from '../security/authorization';
 import { ordersRouter } from './v1/orders';
+import { billingRouter } from './v1/billing';
 
 const loginRequestSchema = z
   .object({
@@ -89,5 +90,6 @@ v1Router.get('/resources', requireAuthorization, async (c) => {
 });
 
 v1Router.route('/orders', ordersRouter);
+v1Router.route('/billing', billingRouter);
 
 export { v1Router };

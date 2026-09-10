@@ -35,10 +35,18 @@ function allowedOrigins(value: string | undefined): Set<string> {
   );
 }
 
+export function isAllowedFrontendOrigin(
+  origin: string | undefined,
+  configuredOrigins: string | undefined
+): origin is string {
+  return Boolean(origin && allowedOrigins(configuredOrigins).has(origin));
+}
+
 export const strictCors: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
   const requestOrigin = c.req.header('Origin');
-  const originIsAllowed = Boolean(
-    requestOrigin && allowedOrigins(c.env.FRONTEND_ORIGINS).has(requestOrigin)
+  const originIsAllowed = isAllowedFrontendOrigin(
+    requestOrigin,
+    c.env.FRONTEND_ORIGINS
   );
 
   if (c.req.method === 'OPTIONS') {

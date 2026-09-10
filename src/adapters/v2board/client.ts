@@ -8,6 +8,10 @@ export interface V2BoardClientConfig {
 const FORWARDED_HEADERS = ['accept', 'authorization', 'content-type'] as const;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+export interface V2BoardRequestInit extends RequestInit {
+  trustedOrigin?: string;
+}
+
 export class UpstreamRedirectError extends Error {
   constructor() {
     super('Upstream redirect rejected');
@@ -54,9 +58,18 @@ export class V2BoardClient {
     }
   }
 
-  async fetch(path: string, init?: RequestInit): Promise<Response> {
+  async fetch(path: string, init?: V2BoardRequestInit): Promise<Response> {
     const url = this.resolvePath(path);
     const headers = this.buildHeaders(init?.headers);
+    const { trustedOrigin, ...fetchInit } = init ?? {};
+
+    if (trustedOrigin !== undefined) {
+      const origin = new URL(trustedOrigin);
+      if (origin.origin !== trustedOrigin || origin.protocol !== 'https:') {
+        throw new Error('Trusted upstream Origin must be an HTTPS origin');
+      }
+      headers.set('Origin', trustedOrigin);
+    }
     const controller = new AbortController();
     const inputSignal = init?.signal;
     const forwardAbort = () => controller.abort(inputSignal?.reason);
@@ -80,7 +93,7 @@ export class V2BoardClient {
     try {
       response = await Promise.race([
         this.fetcher(url.toString(), {
-          ...init,
+          ...fetchInit,
           headers,
           redirect: 'manual',
           signal: controller.signal,

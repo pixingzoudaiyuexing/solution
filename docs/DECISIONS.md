@@ -11,3 +11,13 @@
 | D-007 | APPROVED | 删除 legacy AES / SEC_PASSWORD / SHA1 pathname mapping / x-salt。 |
 | D-008 | APPROVED | Worker Rate Limiting 只用于 abuse protection，业务状态继续由 V2Board 负责。 |
 | D-009 | APPROVED | 所有 V2Board Adapter fetch requests MUST use `redirect: "manual"`。对 3xx responses 由 Adapter 显式处理，严禁盲目跟随或透传。 |
+| D-010 | APPROVED | Payment v1 由 V2Board 持有支付和订单状态；Gateway 只做 Contract 转换、安全过滤和 DTO 映射。 |
+
+## D-010 Payment v1 实施约束
+
+- V2Board 继续作为 payment/order state 的唯一 owner；Gateway 不保存支付、二维码或订单业务状态。
+- Desktop QR 是 v1 首选支付体验，Client Application 通过 Order Detail 查询最终状态。
+- Payment Provider callback 直接进入 V2Board，solution 不提供 callback proxy 或 webhook。
+- Checkout 仅转发经过 `FRONTEND_ORIGINS` 精确校验的 HTTPS Origin，用于保留原生移动端 return 行为；不转发浏览器控制的 Host 和 Forwarded Host/Proto headers。
+- 支付过期遵循 V2Board 订单过期规则，Gateway 不创建独立 timer。若上游不能提供权威 expiry，则公开合同不得猜测 `expiresAt`。
+- Checkout v1 的 Public response types 仅为 `finished`、`qrcode` 和 `redirect`。

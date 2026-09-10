@@ -522,8 +522,8 @@ describe('GET /api/v1/orders/:id', () => {
   });
 
   it.each([
-    ['POST', '/api/v1/orders/order-003/checkout'],
     ['GET', '/api/v1/orders/order-003/payment'],
+    ['POST', '/api/v1/payment/callback'],
   ])('does not expose payment route %s %s', async (method, path) => {
     const upstreamFetch = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', upstreamFetch);

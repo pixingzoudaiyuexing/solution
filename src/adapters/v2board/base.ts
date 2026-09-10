@@ -1,4 +1,8 @@
-import { UpstreamTimeoutError, V2BoardClient } from './client';
+import {
+  UpstreamTimeoutError,
+  V2BoardClient,
+  type V2BoardRequestInit,
+} from './client';
 import {
   V2BoardAuthenticationError,
   V2BoardTimeoutError,
@@ -23,7 +27,7 @@ export abstract class V2BoardAdapterBase {
 
   protected async requestJson(
     path: string,
-    init: RequestInit
+    init: V2BoardRequestInit
   ): Promise<V2BoardJsonResponse> {
     let response: Response;
     try {
