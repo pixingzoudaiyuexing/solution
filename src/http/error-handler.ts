@@ -6,6 +6,8 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardOrderCreateError,
+  V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
   V2BoardTimeoutError,
   V2BoardValidationError,
@@ -56,6 +58,24 @@ export const errorHandler: ErrorHandler = (err, c) => {
         id
       ),
       502
+    );
+  }
+
+  if (err instanceof V2BoardOrderCreateError) {
+    return c.json(
+      publicErrorResponse(
+        'ORDER_CREATE_FAILED',
+        'Unable to create order',
+        id
+      ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardOrderNotFoundError) {
+    return c.json(
+      publicErrorResponse('ORDER_NOT_FOUND', 'Order not found', id),
+      404
     );
   }
 

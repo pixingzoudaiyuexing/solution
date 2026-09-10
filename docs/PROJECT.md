@@ -11,7 +11,7 @@
 - 通过 CF Tunnel + Access 严格保护真实后端入口。
 
 ## 当前实现状态
-当前仓库已实现 Phase 2B Read-only Business Foundation：登录、当前用户身份查询、产品列表、公共资源状态，以及可供后续受保护路由复用的无状态 Authorization request context。`API-CONTRACT.md` 中其他业务路由仍是后续实现目标，当前不会返回伪造业务数据。
+当前仓库已实现 Phase 2C.3 Order Domain Foundation：登录、当前用户身份查询、产品列表、公共资源状态，以及订单创建、列表和详情。Gateway 保持无状态，checkout、payment、callback 等后续业务路由仍未实现。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。

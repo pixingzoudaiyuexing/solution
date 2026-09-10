@@ -32,3 +32,17 @@ export class V2BoardOrderQueryError extends Error {
     this.name = 'V2BoardOrderQueryError';
   }
 }
+
+export class V2BoardOrderCreateError extends Error {
+  constructor() {
+    super('V2Board order creation failed');
+    this.name = 'V2BoardOrderCreateError';
+  }
+}
+
+export class V2BoardOrderNotFoundError extends Error {
+  constructor() {
+    super('V2Board order not found');
+    this.name = 'V2BoardOrderNotFoundError';
+  }
+}

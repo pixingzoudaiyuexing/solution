@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
+  V2BoardOrderCreateError,
+  V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
   V2BoardTimeoutError,
   V2BoardUpstreamError,
@@ -182,6 +184,110 @@ describe('V2BoardOrdersAdapter', () => {
     );
 
     await expect(adapter.orders('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it.each([
+    ['month', 'month_price'],
+    ['quarter', 'quarter_price'],
+    ['halfYear', 'half_year_price'],
+    ['year', 'year_price'],
+    ['twoYears', 'two_year_price'],
+    ['threeYears', 'three_year_price'],
+    ['oneTime', 'onetime_price'],
+  ] as const)('maps billing period %s to %s', async (billingPeriod, period) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: 'order-created', ignored: 'private' })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod,
+      })
+    ).resolves.toEqual({ id: 'order-created' });
+
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://private.example/api/v1/user/order/save');
+    expect(init?.redirect).toBe('manual');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      plan_id: 7,
+      period,
+    });
+  });
+
+  it('maps a JSON create rejection without retaining its details', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Current product is sold out' }, 500)
+      )
+    );
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod: 'month',
+      })
+    ).rejects.toBeInstanceOf(V2BoardOrderCreateError);
+  });
+
+  it('fails closed on a malformed create success response', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: { trade_no: 'unexpected-shape' } })
+      )
+    );
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod: 'month',
+      })
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it('maps order detail to the same public DTO', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: upstreamOrder(3, 'detail') })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(adapter.order('opaque-token', 'order-detail')).resolves.toEqual({
+      id: 'order-detail',
+      status: 'completed',
+      amountMinor: 1099,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-02T00:00:00.000Z',
+    });
+
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://private.example/api/v1/user/order/detail?trade_no=order-detail'
+    );
+  });
+
+  it.each([
+    'Order does not exist or has been paid',
+    '订单不存在或已支付',
+  ])('maps a known missing-order response: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(adapter.order('opaque-token', 'missing-order')).rejects.toBeInstanceOf(
+      V2BoardOrderNotFoundError
+    );
+  });
+
+  it('fails closed on a malformed detail success response', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: { trade_no: 'order-detail' } })
+      )
+    );
+
+    await expect(adapter.order('opaque-token', 'order-detail')).rejects.toBeInstanceOf(
       V2BoardUpstreamError
     );
   });

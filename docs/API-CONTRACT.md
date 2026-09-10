@@ -13,11 +13,11 @@
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `GET /api/v1/products`                 | Yes            | `user/plan/fetch`               |
 | `GET /api/v1/orders`                   | Yes            | `user/order/fetch`              |
-| `POST /api/v1/purchases`               | Yes            | `user/order/save`               |
-| `GET /api/v1/purchases/{id}`           | Yes            | `user/order/detail`             |
-| `GET /api/v1/purchases/{id}/status`    | Yes            | `user/order/check`              |
-| `POST /api/v1/purchases/{id}/checkout` | Yes            | `user/order/checkout`           |
-| `POST /api/v1/purchases/{id}/cancel`   | Yes            | `user/order/cancel`             |
+| `POST /api/v1/orders`                  | Yes            | `user/order/save`               |
+| `GET /api/v1/orders/{id}`              | Yes            | `user/order/detail`             |
+| `GET /api/v1/orders/{id}/status`       | Yes            | `user/order/check`              |
+| `POST /api/v1/orders/{id}/checkout`    | Yes            | `user/order/checkout`           |
+| `POST /api/v1/orders/{id}/cancel`      | Yes            | `user/order/cancel`             |
 | `GET /api/v1/billing/methods`          | Yes            | `user/order/getPaymentMethod`   |
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
 | `GET /api/v1/access`                   | Yes            | `user/getSubscribe`             |
@@ -180,7 +180,7 @@ Success：
 
 HTTP status 为 `504`。
 
-## Phase 2C.1 已实现契约
+## Phase 2C.3 已实现契约
 
 ### Orders
 
@@ -221,12 +221,76 @@ Success：
 
 Gateway 不返回 plan、payment、callback、commission、用户 UUID 或其他 V2Board Order 原始字段。
 
+### Create Order
+
+```http
+POST /api/v1/orders
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+Request：
+
+```json
+{
+  "productId": "7",
+  "billingPeriod": "month"
+}
+```
+
+`productId` 是 Products API 返回的字符串 ID。`billingPeriod` 可为 `month`、`quarter`、`halfYear`、`year`、`twoYears`、`threeYears`、`oneTime`；不支持流量重置。
+
+Success（HTTP 201）：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "order-002"
+  },
+  "requestId": "request-id"
+}
+```
+
+V2Board 创建接口只返回订单号，因此 Gateway 不伪造金额、状态或时间。完整订单由 Detail API 从 V2Board 重新读取。
+
+Gateway 不接收价格、支付方式、优惠券、余额或其他 V2Board 参数，不负责价格计算、套餐有效性、购买资格或订单状态修改。V2Board 标准 `order/save` 可能按其自身业务规则自动使用用户已有余额；Gateway 不参与该计算，也不保存相关状态。
+
+创建请求如果返回 `UPSTREAM_TIMEOUT`，订单可能已经由 V2Board 创建。Gateway 不自动重试，Client Application 应先重新查询 Orders List，避免重复提交。
+
+### Order Detail
+
+```http
+GET /api/v1/orders/{id}
+Authorization: Bearer <opaque-token>
+```
+
+Success 使用与 Orders List 相同的单个 Order DTO：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "order-002",
+    "status": "pending",
+    "amountMinor": 1099,
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": null
+  },
+  "requestId": "request-id"
+}
+```
+
+`POST /api/v1/orders/{id}/checkout` 及 payment、callback、refund、coupon、subscription 路由均未实现。
+
 错误：
 
 | HTTP | Code                 | 场景 |
 | ---- | -------------------- | ---- |
 | 401  | `AUTH_REQUIRED`      | 缺少或无法识别 Bearer credential |
 | 401  | `AUTH_FAILED`        | V2Board 拒绝当前 credential |
+| 404  | `ORDER_NOT_FOUND`    | 当前用户的订单不存在 |
+| 502  | `ORDER_CREATE_FAILED` | V2Board 拒绝创建订单 |
 | 502  | `ORDER_QUERY_FAILED` | V2Board 返回可识别的订单查询错误 |
 | 502  | `UPSTREAM_ERROR`     | HTML、无效 JSON 或 malformed order response |
 | 504  | `UPSTREAM_TIMEOUT`   | V2Board 请求超时 |

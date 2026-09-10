@@ -1,6 +1,8 @@
 export type PublicErrorCode =
   | 'AUTH_FAILED'
   | 'AUTH_REQUIRED'
+  | 'ORDER_CREATE_FAILED'
+  | 'ORDER_NOT_FOUND'
   | 'ORDER_QUERY_FAILED'
   | 'UPSTREAM_ERROR'
   | 'UPSTREAM_TIMEOUT'
