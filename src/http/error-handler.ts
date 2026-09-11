@@ -6,6 +6,7 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardCommissionTransferError,
   V2BoardGiftCardAlreadyRedeemedError,
   V2BoardGiftCardExpiredError,
   V2BoardGiftCardNotActiveError,
@@ -13,6 +14,7 @@ import {
   V2BoardGiftCardNotFoundError,
   V2BoardGiftCardRedeemError,
   V2BoardGiftCardUsageLimitError,
+  V2BoardInsufficientCommissionBalanceError,
   V2BoardNoticeNotFoundError,
   V2BoardOrderCreateError,
   V2BoardOrderCancelError,
@@ -55,6 +57,28 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('AUTH_FAILED', 'Authentication failed', id),
       401
+    );
+  }
+
+  if (err instanceof V2BoardInsufficientCommissionBalanceError) {
+    return c.json(
+      publicErrorResponse(
+        'INSUFFICIENT_COMMISSION_BALANCE',
+        'Commission balance is insufficient',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardCommissionTransferError) {
+    return c.json(
+      publicErrorResponse(
+        'COMMISSION_TRANSFER_FAILED',
+        'Unable to transfer commission',
+        id
+      ),
+      502
     );
   }
 

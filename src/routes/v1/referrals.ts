@@ -7,6 +7,7 @@ import { GatewayError } from '../../contract/error';
 import type {
   CommissionHistorySuccessResponse,
   CommissionPageRequest,
+  CommissionTransferSuccessResponse,
   CreateReferralCodeSuccessResponse,
   ReferralOverviewSuccessResponse,
 } from '../../contract/v1/referrals';
@@ -32,6 +33,11 @@ const paginationSchema = z
       .default('20'),
   })
   .strict();
+const commissionTransferSchema = z
+  .object({
+    amountMinor: z.number().int().min(1).max(2_147_483_647),
+  })
+  .strict();
 
 function adapter(env: Env): V2BoardReferralsAdapter {
   return new V2BoardReferralsAdapter(createV2BoardClient(env));
@@ -48,6 +54,14 @@ function pagination(url: string): CommissionPageRequest {
     throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
   }
   return parsed.data;
+}
+
+async function requestBody(c: Parameters<typeof requestId>[0]): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
 }
 
 referralsRouter.get('/', requireAuthorization, async (c) => {
@@ -85,5 +99,27 @@ referralsRouter.get('/commissions', requireAuthorization, async (c) => {
   c.header('Cache-Control', 'no-store');
   return c.json(response);
 });
+
+referralsRouter.post(
+  '/commissions/transfer',
+  requireAuthorization,
+  async (c) => {
+    const parsed = commissionTransferSchema.safeParse(await requestBody(c));
+    if (!parsed.success) {
+      throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+    }
+    const data = await adapter(c.env).transferCommission(
+      c.get('authToken'),
+      parsed.data.amountMinor
+    );
+    const response: CommissionTransferSuccessResponse = {
+      ok: true,
+      data,
+      requestId: requestId(c),
+    };
+    c.header('Cache-Control', 'no-store');
+    return c.json(response);
+  }
+);
 
 export { referralsRouter };

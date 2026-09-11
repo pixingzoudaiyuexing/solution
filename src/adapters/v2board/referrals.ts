@@ -2,12 +2,15 @@ import { z } from 'zod';
 import type {
   CommissionPage,
   CommissionPageRequest,
+  CommissionTransferred,
   CreatedReferralCode,
   ReferralOverview,
 } from '../../contract/v1/referrals';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
+  V2BoardCommissionTransferError,
+  V2BoardInsufficientCommissionBalanceError,
   V2BoardReferralCodeLimitError,
   V2BoardUpstreamError,
 } from './errors';
@@ -41,7 +44,7 @@ const referralOverviewResponseSchema = z
       .strip(),
   })
   .strip();
-const createdCodeResponseSchema = z.object({ data: z.literal(true) }).strip();
+const trueResponseSchema = z.object({ data: z.literal(true) }).strip();
 const commissionSchema = z
   .object({
     order_amount: safeIntegerSchema,
@@ -62,6 +65,16 @@ const errorResponseSchema = z
 const CODE_LIMIT_MESSAGES = new Set([
   'the maximum number of creations has been reached',
   '已达到创建数量上限',
+]);
+const INSUFFICIENT_COMMISSION_MESSAGES = new Set([
+  'insufficient commission balance',
+  '推广佣金余额不足',
+]);
+const COMMISSION_TRANSFER_FAILED_MESSAGES = new Set([
+  'transfer failed',
+  '划转失败',
+  'the user does not exist',
+  '该用户不存在',
 ]);
 
 function toIsoTimestamp(value: number): string {
@@ -123,7 +136,7 @@ export class V2BoardReferralsAdapter extends V2BoardAdapterBase {
       }
       throw new V2BoardUpstreamError();
     }
-    if (!createdCodeResponseSchema.safeParse(payload).success) {
+    if (!trueResponseSchema.safeParse(payload).success) {
       throw new V2BoardUpstreamError();
     }
     return { created: true };
@@ -158,5 +171,35 @@ export class V2BoardReferralsAdapter extends V2BoardAdapterBase {
       pageSize: pagination.pageSize,
       total: parsed.data.total,
     };
+  }
+
+  async transferCommission(
+    authToken: string,
+    amountMinor: number
+  ): Promise<CommissionTransferred> {
+    const { response, payload } = await this.requestJson('user/transfer', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ transfer_amount: amountMinor }),
+    });
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = errorMessage(payload);
+      if (message && INSUFFICIENT_COMMISSION_MESSAGES.has(message)) {
+        throw new V2BoardInsufficientCommissionBalanceError();
+      }
+      if (message && COMMISSION_TRANSFER_FAILED_MESSAGES.has(message)) {
+        throw new V2BoardCommissionTransferError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+    if (!trueResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { transferred: true };
   }
 }

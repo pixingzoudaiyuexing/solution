@@ -50,6 +50,39 @@ describe('V2BoardOrdersAdapter', () => {
     await expect(adapter.orders('opaque-token')).resolves.toEqual([]);
   });
 
+  it('maps an official commission transfer deposit order without changing the Order contract', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              trade_no: 'deposit-order-001',
+              plan_id: 0,
+              period: 'deposit',
+              status: 3,
+              total_amount: 0,
+              surplus_amount: 1,
+              callback_no: 'Commission transfer',
+              created_at: 1704067200,
+              updated_at: 1704153600,
+            },
+          ],
+        })
+      )
+    );
+
+    await expect(adapter.orders('opaque-token')).resolves.toEqual([
+      {
+        id: 'deposit-order-001',
+        status: 'completed',
+        amountMinor: 0,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+        expiresAt: null,
+      },
+    ]);
+  });
+
   it('maps all V2Board statuses and strips internal fields', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({

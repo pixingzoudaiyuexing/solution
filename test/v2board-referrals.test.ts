@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
+  V2BoardAuthenticationError,
+  V2BoardCommissionTransferError,
+  V2BoardInsufficientCommissionBalanceError,
   V2BoardReferralCodeLimitError,
   V2BoardTimeoutError,
   V2BoardUpstreamError,
@@ -354,5 +357,127 @@ describe('V2BoardReferralsAdapter commission history', () => {
     await expect(
       timeout.commissions('opaque-token', { page: 1, pageSize: 20 })
     ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+  });
+});
+
+describe('V2BoardReferralsAdapter commission transfer', () => {
+  it('submits the exact amount once and accepts data=true without a follow-up read', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: true, balance: 999, order: 'must-not-leak' })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(adapter.transferCommission('opaque-token', 137)).resolves.toEqual({
+      transferred: true,
+    });
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://backend.example/api/v1/user/transfer');
+    expect(init?.method).toBe('POST');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+    expect(new Headers(init?.headers).get('content-type')).toBe('application/json');
+    expect(JSON.parse(String(init?.body))).toEqual({ transfer_amount: 137 });
+  });
+
+  it.each([
+    'Insufficient commission balance',
+    '推广佣金余额不足',
+  ])('maps exact insufficient balance error: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+    await expect(
+      adapter.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardInsufficientCommissionBalanceError);
+  });
+
+  it.each([
+    'Transfer failed',
+    '划转失败',
+    'The user does not exist',
+    '该用户不存在',
+  ])('maps exact transfer failure: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+    await expect(
+      adapter.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardCommissionTransferError);
+  });
+
+  it.each([
+    { data: false },
+    { data: null },
+    {},
+    { data: 'true' },
+    [],
+  ])('fails closed on malformed success %#', async (payload) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+    );
+    await expect(
+      adapter.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it('does not classify partial or unknown upstream messages', async () => {
+    const partial = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Insufficient commission balance: SQL error' }, 500)
+      )
+    );
+    const unknown = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Unexpected transfer state' }, 500)
+      )
+    );
+
+    await expect(
+      partial.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    await expect(
+      unknown.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it('normalizes HTML, invalid JSON, auth, and timeout without retry', async () => {
+    const html = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<h1>private transfer failure</h1>', { status: 500 })
+      )
+    );
+    const invalidJson = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{invalid', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+    const auth = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    const timeout = createAdapter(timeoutFetcher);
+
+    await expect(html.transferCommission('opaque-token', 1)).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+    await expect(
+      invalidJson.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    await expect(auth.transferCommission('opaque-token', 1)).rejects.toBeInstanceOf(
+      V2BoardAuthenticationError
+    );
+    await expect(
+      timeout.transferCommission('opaque-token', 1)
+    ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
   });
 });

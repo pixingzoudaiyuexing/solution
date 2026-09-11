@@ -377,3 +377,158 @@ describe('GET /api/v1/referrals/commissions', () => {
     expect(response.status).toBe(504);
   });
 });
+
+describe('POST /api/v1/referrals/commissions/transfer', () => {
+  async function transfer(body: unknown, authenticated = true): Promise<Response> {
+    return app.request(
+      '/api/v1/referrals/commissions/transfer',
+      {
+        method: 'POST',
+        headers: {
+          ...(authenticated ? { Authorization: 'Bearer opaque-token' } : {}),
+          'Content-Type': 'application/json',
+          'cf-ray': 'request-id',
+        },
+        body: JSON.stringify(body),
+      },
+      env
+    );
+  }
+
+  it('transfers through one upstream call and returns only transferred=true', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: true, order_id: 7, balance: 999 })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await transfer({ amountMinor: 137 });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: { transferred: true },
+      requestId: 'request-id',
+    });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://backend.example/api/v1/user/transfer'
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      transfer_amount: 137,
+    });
+  });
+
+  it.each([
+    ['missing amount', {}],
+    ['zero', { amountMinor: 0 }],
+    ['negative', { amountMinor: -1 }],
+    ['fractional', { amountMinor: 1.5 }],
+    ['string', { amountMinor: '100' }],
+    ['above INT', { amountMinor: 2_147_483_648 }],
+    ['unknown field', { amountMinor: 1, balance: 1 }],
+    ['upstream alias', { transfer_amount: 1 }],
+  ])('rejects %s before upstream', async (_case, body) => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await transfer(body);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('accepts the INT maximum unchanged', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: true })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await transfer({ amountMinor: 2_147_483_647 });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      transfer_amount: 2_147_483_647,
+    });
+  });
+
+  it('requires Authorization before reading the body', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await app.request(
+      '/api/v1/referrals/commissions/transfer',
+      { method: 'POST', body: '{invalid' },
+      env
+    );
+    expect(response.status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('maps invalid upstream Authorization to AUTH_FAILED', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    const response = await transfer({ amountMinor: 1 });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: { code: 'AUTH_FAILED' } });
+  });
+
+  it.each([
+    ['Insufficient commission balance', 409, 'INSUFFICIENT_COMMISSION_BALANCE'],
+    ['推广佣金余额不足', 409, 'INSUFFICIENT_COMMISSION_BALANCE'],
+    ['Transfer failed', 502, 'COMMISSION_TRANSFER_FAILED'],
+    ['划转失败', 502, 'COMMISSION_TRANSFER_FAILED'],
+  ] as const)('normalizes %s without leaking it', async (message, status, code) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+    const response = await transfer({ amountMinor: 1 });
+    const text = await response.text();
+    expect(response.status).toBe(status);
+    expect(text).toContain(code);
+    expect(text).not.toContain(message);
+  });
+
+  it('normalizes unknown failure and timeout without retry', async () => {
+    const unknownFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ message: 'Unexpected state' }, 500)
+    );
+    vi.stubGlobal('fetch', unknownFetcher);
+    let response = await transfer({ amountMinor: 1 });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ error: { code: 'UPSTREAM_ERROR' } });
+    expect(unknownFetcher).toHaveBeenCalledOnce();
+
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    vi.stubGlobal('fetch', timeoutFetcher);
+    response = await transfer({ amountMinor: 1 });
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({ error: { code: 'UPSTREAM_TIMEOUT' } });
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
+  });
+
+  it('does not log amounts, token, or raw upstream details', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<h1>private transfer failure 137</h1>', { status: 500 })
+      )
+    );
+    await transfer({ amountMinor: 137 });
+    const logged = JSON.stringify(error.mock.calls);
+    expect(logged).not.toContain('137');
+    expect(logged).not.toContain('opaque-token');
+    expect(logged).not.toContain('private transfer failure');
+    expect(logged).not.toContain('backend.example');
+  });
+});

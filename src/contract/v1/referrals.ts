@@ -20,6 +20,14 @@ export interface CreatedReferralCode {
   created: true;
 }
 
+export interface CommissionTransferRequest {
+  amountMinor: number;
+}
+
+export interface CommissionTransferred {
+  transferred: true;
+}
+
 export interface CommissionHistoryItem {
   orderAmountMinor: number;
   commissionAmountMinor: number;
@@ -45,6 +53,12 @@ export interface ReferralOverviewSuccessResponse {
 export interface CreateReferralCodeSuccessResponse {
   ok: true;
   data: CreatedReferralCode;
+  requestId: string;
+}
+
+export interface CommissionTransferSuccessResponse {
+  ok: true;
+  data: CommissionTransferred;
   requestId: string;
 }
 

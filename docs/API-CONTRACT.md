@@ -38,6 +38,7 @@
 | `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
 | `GET /api/v1/referrals/commissions`    | Yes            | `user/invite/details`           |
+| `POST /api/v1/referrals/commissions/transfer` | Yes     | `user/transfer`                 |
 | `POST /api/v1/gift-cards/redeem`       | Yes            | `user/redeemgiftcard`           |
 
 ## Phase 2A 已实现契约
@@ -1324,11 +1325,11 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 | 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
-所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Gateway 不提供 commission transfer、withdrawal、balance mutation、`user/transfer` 或 `user/ticket/withdraw`。
+所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Phase 2K 本身不提供资金 mutation；Phase 2N 仅以 additive extension 增加 commission 转站内余额，commission withdrawal、自动打款与 `user/ticket/withdraw` 仍不提供。
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2M 增加 Gift Card Redemption 后，本文件顶部矩阵包含 33 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2N 增加 Commission Transfer 后，本文件顶部矩阵包含 34 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1338,7 +1339,7 @@ v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/C
 - **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
-Gift Card 管理/创建/list/preview、Active Session、Quick Login、commission transfer、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+Gift Card 管理/创建/list/preview、Active Session、Quick Login、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
 
 ## Phase 2M Gift Card Redemption
 
@@ -1396,3 +1397,53 @@ Type 1 `value` 是 V2Board 最小货币单位，Gateway 不除以 100、不猜�
 业务错误只按官方完整 exact message 映射，不返回 raw V2Board/Laravel message。Gift Card code 不进入响应、application log 或 request metadata。兑换是非幂等 mutation，Gateway 不自动 retry；收到 `UPSTREAM_TIMEOUT` 后，Client 不应盲目重复提交，应先刷新 subscription overview 或其他权威账户状态。再次提交得到 `GIFT_CARD_ALREADY_REDEEMED` 不能由 Gateway 自动推断第一次结果。
 
 Gift Card 管理、创建、list、preview 不属于 solution Public Contract。Admin Gift Card 能力仅可用于受控 staging 验收。
+
+## Phase 2N Commission Transfer
+
+```http
+POST /api/v1/referrals/commissions/transfer
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+Request：
+
+```json
+{ "amountMinor": 100 }
+```
+
+`amountMinor` 必须是 `1..2147483647` 的整数；strict schema 拒绝字符串、浮点数、额外字段和 upstream 字段名 `transfer_amount`。
+
+Adapter 只发出一次以下请求，不执行 pre-check 或后续 read：
+
+```http
+POST user/transfer
+Content-Type: application/json
+
+{ "transfer_amount": 100 }
+```
+
+只有官方响应严格满足 `{ "data": true }` 才视为成功。Public Response：
+
+```json
+{
+  "ok": true,
+  "data": { "transferred": true },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不返回新余额或 V2Board 创建的 deposit Order。commission 余额判断、`commission_balance` 扣减、站内 `balance` 增加、事务与 deposit Order 创建全部由 V2Board 拥有；Gateway 不查询余额、不计算资金、不创建 Order、不保存 mutation state。
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Public request 不符合 strict schema |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
+| 409 | `INSUFFICIENT_COMMISSION_BALANCE` | V2Board exact error 表明佣金余额不足 |
+| 502 | `COMMISSION_TRANSFER_FAILED` | V2Board exact error 表明 transfer transaction/save 失败 |
+| 502 | `UPSTREAM_ERROR` | malformed success、HTML、invalid JSON 或未知 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时；资金 mutation 结果未知 |
+
+Commission Transfer 是非幂等资金 mutation。Gateway 不自动 retry，也不实现 idempotency state。收到 `UPSTREAM_TIMEOUT` 表示 V2Board 可能已经提交，也可能尚未提交；Client 不得立即盲目重试，应先通过 `GET /api/v1/referrals` 刷新权威 `availableCommissionMinor` 及相关账户状态，再由用户决定下一步。Gateway 不根据后续 read 自动推断第一次 transfer 的结果。
+
+成功与错误响应均使用 `Cache-Control: no-store`。Public response 不包含 raw balance、commission model、deposit Order、V2Board error message 或内部字段；amount、Bearer token 和 raw upstream payload 不进入日志。Commission withdrawal、自动打款、withdrawal ticket、Gateway 资金计算和资金状态存储仍是 Non-goals。

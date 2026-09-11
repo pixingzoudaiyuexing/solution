@@ -235,3 +235,17 @@ export class V2BoardGiftCardRedeemError extends Error {
     this.name = 'V2BoardGiftCardRedeemError';
   }
 }
+
+export class V2BoardInsufficientCommissionBalanceError extends Error {
+  constructor() {
+    super('V2Board commission balance is insufficient');
+    this.name = 'V2BoardInsufficientCommissionBalanceError';
+  }
+}
+
+export class V2BoardCommissionTransferError extends Error {
+  constructor() {
+    super('V2Board commission transfer failed');
+    this.name = 'V2BoardCommissionTransferError';
+  }
+}
