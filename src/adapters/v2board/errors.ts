@@ -54,6 +54,20 @@ export class V2BoardPasswordResetError extends Error {
   }
 }
 
+export class V2BoardPasswordChangeError extends Error {
+  constructor() {
+    super('V2Board password change rejected');
+    this.name = 'V2BoardPasswordChangeError';
+  }
+}
+
+export class V2BoardPreferencesUpdateError extends Error {
+  constructor() {
+    super('V2Board preferences update failed');
+    this.name = 'V2BoardPreferencesUpdateError';
+  }
+}
+
 export class V2BoardOrderQueryError extends Error {
   constructor() {
     super('V2Board order query failed');

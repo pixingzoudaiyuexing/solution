@@ -19,6 +19,7 @@ import {
   type GatewayContext,
 } from '../security/authorization';
 import { ordersRouter } from './v1/orders';
+import { accountRouter } from './v1/account';
 import { billingRouter } from './v1/billing';
 import { promotionsRouter } from './v1/promotions';
 import {
@@ -174,6 +175,7 @@ v1Router.get('/resources', requireAuthorization, async (c) => {
 });
 
 v1Router.route('/orders', ordersRouter);
+v1Router.route('/me', accountRouter);
 v1Router.route('/billing', billingRouter);
 v1Router.route('/promotions', promotionsRouter);
 v1Router.route('/subscription', subscriptionRouter);

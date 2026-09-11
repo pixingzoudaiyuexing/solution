@@ -13,11 +13,13 @@ import {
   V2BoardOrderNotCancellableError,
   V2BoardOrderQueryError,
   V2BoardPasswordResetError,
+  V2BoardPasswordChangeError,
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
   V2BoardRateLimitedError,
   V2BoardRegistrationUnavailableError,
   V2BoardPromotionInvalidError,
+  V2BoardPreferencesUpdateError,
   V2BoardTimeoutError,
   V2BoardValidationError,
   V2BoardVerificationError,
@@ -82,6 +84,28 @@ export const errorHandler: ErrorHandler = (err, c) => {
         id
       ),
       422
+    );
+  }
+
+  if (err instanceof V2BoardPasswordChangeError) {
+    return c.json(
+      publicErrorResponse(
+        'PASSWORD_CHANGE_FAILED',
+        'Unable to change password',
+        id
+      ),
+      422
+    );
+  }
+
+  if (err instanceof V2BoardPreferencesUpdateError) {
+    return c.json(
+      publicErrorResponse(
+        'PREFERENCES_UPDATE_FAILED',
+        'Unable to update preferences',
+        id
+      ),
+      502
     );
   }
 

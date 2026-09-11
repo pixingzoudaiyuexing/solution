@@ -8,12 +8,17 @@ import type {
   PasswordResetResponseData,
   RegisterRequest,
 } from '../../contract/auth';
-import type { CurrentUserResponseData } from '../../contract/user';
+import type {
+  ChangePasswordRequest,
+  CurrentUserResponseData,
+  PasswordChanged,
+} from '../../contract/user';
 import { V2BoardClient } from './client';
 import { V2BoardAdapterBase } from './base';
 import {
   V2BoardAuthenticationError,
   V2BoardPasswordResetError,
+  V2BoardPasswordChangeError,
   V2BoardRateLimitedError,
   V2BoardRegistrationUnavailableError,
   V2BoardUpstreamError,
@@ -99,6 +104,14 @@ const PASSWORD_RESET_MESSAGES = new Set([
   'this email is not registered in the system',
   '该邮箱不存在系统中',
   'reset failed',
+]);
+const PASSWORD_CHANGE_MESSAGES = new Set([
+  'the old password is wrong',
+  '旧密码有误',
+  'the user does not exist',
+  '该用户不存在',
+  'save failed',
+  '保存失败',
 ]);
 
 function authFailureMessage(payload: unknown): string | undefined {
@@ -277,6 +290,36 @@ export class V2BoardAuthAdapter extends V2BoardAdapterBase {
           : new Date(data.expired_at * 1000).toISOString(),
       status: accountStatus(data.banned, data.expired_at),
     };
+  }
+
+  async changePassword(
+    authToken: string,
+    request: ChangePasswordRequest
+  ): Promise<PasswordChanged> {
+    const { response, payload } = await this.requestJson('user/changePassword', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        old_password: request.currentPassword,
+        new_password: request.newPassword,
+      }),
+    });
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = authFailureMessage(payload)?.trim().toLowerCase();
+      if (message && PASSWORD_CHANGE_MESSAGES.has(message)) {
+        throw new V2BoardPasswordChangeError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+    if (!trueResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { changed: true };
   }
 
   private assertAuthenticationResponse(

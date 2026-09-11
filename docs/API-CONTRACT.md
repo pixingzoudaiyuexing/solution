@@ -11,6 +11,9 @@
 | `POST /api/v1/auth/email-code`         | No             | `passport/comm/sendEmailVerify` |
 | `POST /api/v1/auth/password/reset`     | No             | `passport/auth/forget`          |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
+| `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
+| `PATCH /api/v1/me/preferences`         | Yes            | `user/update`                   |
+| `GET /api/v1/me/stats`                 | Yes            | `user/getStat`                  |
 | `GET /api/v1/products`                 | Yes            | `user/plan/fetch`               |
 | `GET /api/v1/orders`                   | Yes            | `user/order/fetch`              |
 | `POST /api/v1/orders`                  | Yes            | `user/order/save`               |
@@ -755,3 +758,100 @@ V2Board 负责 coupon 是否存在、启用状态、有效期、次数、套餐/
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 所有响应使用 `Cache-Control: no-store`。业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用模糊字符串匹配，也不返回 raw V2Board/Laravel message。
+
+## Phase 2G Account Self-Service
+
+以下接口均要求 `Authorization: Bearer <opaque-token>`，继续使用统一 `V2BoardClient`、10 秒 timeout、`redirect: manual` 和 header allowlist。V2Board 持有密码、session、用户偏好和账户统计；Gateway 不保存这些状态。
+
+现有 `GET /api/v1/me` Contract 保持不变，仍只返回 `email`、`expiresAt` 和 `status`。
+
+### Change Password
+
+```http
+POST /api/v1/me/password
+Content-Type: application/json
+```
+
+```json
+{
+  "currentPassword": "old-password",
+  "newPassword": "new-password"
+}
+```
+
+`currentPassword` 长度为 1 至 1024，`newPassword` 长度为 8 至 1024。Adapter 映射为官方 `POST user/changePassword` 的 `old_password` 和 `new_password`。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "changed": true },
+  "requestId": "request-id"
+}
+```
+
+成功后 V2Board 更新密码并调用 `removeAllSession()`，包括当前 Bearer 在内的旧 session 都由 V2Board 失效。Gateway 不创建新 token、不自动登录、不缓存旧 token，也不自行 revoke session。
+
+### Preferences
+
+```http
+PATCH /api/v1/me/preferences
+Content-Type: application/json
+```
+
+```json
+{
+  "autoRenewal": true,
+  "remindExpire": true,
+  "remindTraffic": false
+}
+```
+
+三个字段均为 boolean 且可选，但请求至少必须提供一个。Adapter 映射为官方 `POST user/update` 的 `auto_renewal`、`remind_expire`、`remind_traffic`，boolean 分别转换为 `1/0`。未出现在 Public 请求中的字段不发送给 V2Board，因此不会被 Gateway 覆盖。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "updated": true },
+  "requestId": "request-id"
+}
+```
+
+### Account Stats
+
+```http
+GET /api/v1/me/stats
+```
+
+官方 `GET user/getStat` 返回 positional array：`[pendingOrderCount, openTicketCount, invitedUserCount]`。Gateway 要求恰好三个非负、受限整数并转换为命名 DTO：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "pendingOrders": 0,
+    "openTickets": 0,
+    "invitedUsers": 0
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不自行查询订单、工单或邀请数据。数组长度错误、负数、浮点数、字符串或 malformed envelope 均 fail closed 为 `UPSTREAM_ERROR`。
+
+### Phase 2G Errors
+
+| HTTP | Code | 场景 |
+| ---- | ---- | ---- |
+| 400 | `VALIDATION_ERROR` | Public body 缺失、类型错误、越界、空 preferences 或额外字段 |
+| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 Bearer credential |
+| 422 | `PASSWORD_CHANGE_FAILED` | V2Board exact error 表明旧密码错误、用户不存在或保存失败 |
+| 502 | `PREFERENCES_UPDATE_FAILED` | V2Board exact error 表明偏好保存失败或用户不存在 |
+| 502 | `UPSTREAM_ERROR` | malformed、HTML、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+密码和 Bearer credential 不进入日志或响应。业务错误只按官方 `99f8526` 的完整 exact message 分类，不把 current password 错误误报为 `AUTH_FAILED`。
