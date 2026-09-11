@@ -8,3 +8,30 @@ export interface SubscriptionAccessSuccessResponse {
   data: SubscriptionAccess;
   requestId: string;
 }
+
+export interface SubscriptionOverviewProduct {
+  id: string;
+  name: string;
+}
+
+export interface SubscriptionTraffic {
+  uploadedBytes: number;
+  downloadedBytes: number;
+  allowanceBytes: number;
+}
+
+export interface SubscriptionOverview {
+  product: SubscriptionOverviewProduct | null;
+  expiresAt: string | null;
+  traffic: SubscriptionTraffic;
+  deviceLimit: number | null;
+  activeDevices: number;
+  resetDay: number | null;
+  renewalAllowed: boolean;
+}
+
+export interface SubscriptionOverviewSuccessResponse {
+  ok: true;
+  data: SubscriptionOverview;
+  requestId: string;
+}

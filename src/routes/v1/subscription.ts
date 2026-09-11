@@ -4,12 +4,16 @@ import {
   createV2BoardOriginClient,
 } from '../../adapters/v2board/factory';
 import { V2BoardSubscriptionAdapter } from '../../adapters/v2board/subscription';
+import { V2BoardSubscriptionOverviewAdapter } from '../../adapters/v2board/subscription-overview';
 import {
   V2BoardSubscriptionUnavailableError,
   V2BoardTimeoutError,
 } from '../../adapters/v2board/errors';
 import type { Env } from '../../config/env';
-import type { SubscriptionAccessSuccessResponse } from '../../contract/v1/subscription';
+import type {
+  SubscriptionAccessSuccessResponse,
+  SubscriptionOverviewSuccessResponse,
+} from '../../contract/v1/subscription';
 import { requestId } from '../../http/request-id';
 import {
   requireAuthorization,
@@ -66,6 +70,20 @@ subscriptionRouter.get('/', requireAuthorization, async (c) => {
     requestId: requestId(c),
   };
 
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.get('/overview', requireAuthorization, async (c) => {
+  const adapter = new V2BoardSubscriptionOverviewAdapter(
+    createV2BoardClient(c.env)
+  );
+  const data = await adapter.overview(c.get('authToken'));
+  const response: SubscriptionOverviewSuccessResponse = {
+    ok: true,
+    data,
+    requestId: requestId(c),
+  };
   c.header('Cache-Control', 'no-store');
   return c.json(response);
 });

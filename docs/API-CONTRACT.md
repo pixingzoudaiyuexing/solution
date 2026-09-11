@@ -25,6 +25,7 @@
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
 | `GET /api/v1/access`                   | Yes            | `user/getSubscribe`             |
 | `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
+| `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
@@ -855,3 +856,57 @@ Gateway 不自行查询订单、工单或邀请数据。数组长度错误、负
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 密码和 Bearer credential 不进入日志或响应。业务错误只按官方 `99f8526` 的完整 exact message 分类，不把 current password 错误误报为 `AUTH_FAILED`。
+
+## Phase 2H Subscription Overview
+
+```http
+GET /api/v1/subscription/overview
+Authorization: Bearer <opaque-token>
+```
+
+Adapter 只调用官方 `GET user/getSubscribe`。Overview 是当前套餐、流量、设备和续期配置的只读快照，不等价于 `GET /api/v1/subscription` 的历史购买 eligibility，也不改变 solution-owned access URL 或 subscription streaming逻辑。
+
+有套餐用户：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "product": {
+      "id": "7",
+      "name": "Pro Plan"
+    },
+    "expiresAt": "2030-01-01T00:00:00.000Z",
+    "traffic": {
+      "uploadedBytes": 123,
+      "downloadedBytes": 456,
+      "allowanceBytes": 107374182400
+    },
+    "deviceLimit": 3,
+    "activeDevices": 1,
+    "resetDay": 15,
+    "renewalAllowed": true
+  },
+  "requestId": "request-id"
+}
+```
+
+无套餐用户的 `plan_id` 可以为 `null` 或 `0`，且 Public `product` 返回 `null`。这不是 eligibility 判断；Gateway 不自行推断用户是否可获得 subscription access。
+
+字段映射：
+
+| Official V2Board field | Public field | 类型与语义 |
+| --- | --- | --- |
+| `plan.id` / `plan.name` | `product.id` / `product.name` | 最小产品引用；ID 与 Products API 一样使用 string |
+| `expired_at` | `expiresAt` | 合法 Unix timestamp 转 ISO 8601；`null` 保持 `null` |
+| `u` | `traffic.uploadedBytes` | 非负 JavaScript safe integer bytes |
+| `d` | `traffic.downloadedBytes` | 非负 JavaScript safe integer bytes |
+| `transfer_enable` | `traffic.allowanceBytes` | 非负 JavaScript safe integer bytes |
+| `device_limit` | `deviceLimit` | 非负整数或 `null`；不把 `0` 与 `null` 互换 |
+| `alive_ip` | `activeDevices` | 非负整数；Gateway 不查询或缓存设备状态 |
+| `reset_day` | `resetDay` | 非负整数或 `null`；Gateway 不自行计算 |
+| `allow_new_period` | `renewalAllowed` | 严格接受官方 `0/1` 及配置序列化的 `"0"/"1"` 并转换 boolean |
+
+`renewalAllowed` 只表达上游接口返回的续期配置，不保证某次 renewal 一定成功。Gateway 不提供 remaining bytes、used percent、over-quota、剩余天数、expired boolean或 grace period等派生字段。
+
+Public response 不包含 V2Board `token`、`subscribe_url`、`uuid`、email、完整 plan、`group_id`、内部 user ID 或 server配置。上游缺少必填字段、plan 与 `plan_id` 不一致、负数/浮点/超出安全整数、malformed timestamp/plan/device/reset/renewal flag均 fail closed为 `502 UPSTREAM_ERROR`；认证和 timeout继续使用现有 `AUTH_FAILED` 与 `UPSTREAM_TIMEOUT`。
