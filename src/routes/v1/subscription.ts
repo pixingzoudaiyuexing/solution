@@ -12,6 +12,7 @@ import {
 import type { Env } from '../../config/env';
 import type {
   SubscriptionAccessSuccessResponse,
+  SubscriptionAccessRotationSuccessResponse,
   SubscriptionOverviewSuccessResponse,
 } from '../../contract/v1/subscription';
 import { requestId } from '../../http/request-id';
@@ -46,6 +47,12 @@ function unavailable(status: 400 | 404 | 502 | 504): Response {
   });
 }
 
+function accessUrl(publicOrigin: string, token: string): string {
+  const url = new URL('/api/v1/access/subscription', publicOrigin);
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
 subscriptionRouter.get('/', requireAuthorization, async (c) => {
   if (!c.env.V2BOARD_BASE_URL) {
     throw new Error('V2Board is not configured');
@@ -55,17 +62,14 @@ subscriptionRouter.get('/', requireAuthorization, async (c) => {
     c.env.V2BOARD_BASE_URL
   );
   const access = await adapter(c.env).subscriptionAccess(c.get('authToken'));
-  const accessUrl = access.eligible
-    ? new URL('/api/v1/access/subscription', publicOrigin)
+  const publicAccessUrl = access.eligible
+    ? accessUrl(publicOrigin, access.token)
     : null;
-  if (accessUrl && access.eligible) {
-    accessUrl.searchParams.set('token', access.token);
-  }
   const response: SubscriptionAccessSuccessResponse = {
     ok: true,
     data: {
       eligible: access.eligible,
-      accessUrl: accessUrl?.toString() ?? null,
+      accessUrl: publicAccessUrl,
     },
     requestId: requestId(c),
   };
@@ -82,6 +86,27 @@ subscriptionRouter.get('/overview', requireAuthorization, async (c) => {
   const response: SubscriptionOverviewSuccessResponse = {
     ok: true,
     data,
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.post('/rotate-access', requireAuthorization, async (c) => {
+  if (!c.env.V2BOARD_BASE_URL) {
+    throw new Error('V2Board is not configured');
+  }
+  const publicOrigin = validateGatewayPublicOrigin(
+    c.req.url,
+    c.env.V2BOARD_BASE_URL
+  );
+  const token = await adapter(c.env).rotateAccess(c.get('authToken'));
+  const response: SubscriptionAccessRotationSuccessResponse = {
+    ok: true,
+    data: {
+      rotated: true,
+      accessUrl: accessUrl(publicOrigin, token),
+    },
     requestId: requestId(c),
   };
   c.header('Cache-Control', 'no-store');

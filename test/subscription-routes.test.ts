@@ -159,6 +159,184 @@ describe('GET /api/v1/subscription', () => {
   });
 });
 
+describe('POST /api/v1/subscription/rotate-access', () => {
+  function rotationRequest(method = 'POST'): Request {
+    return new Request(
+      'https://gateway.example/api/v1/subscription/rotate-access',
+      {
+        method,
+        headers: {
+          Authorization: 'Bearer opaque-auth',
+          'cf-ray': 'request-id',
+          Host: 'attacker.example',
+          'X-Forwarded-Host': 'attacker.example',
+        },
+      }
+    );
+  }
+
+  it.each([
+    ['fresh registration', []],
+    ['pending order', [{ plan_id: 7, status: 0 }]],
+    ['cancelled order', [{ plan_id: 7, status: 2 }]],
+    ['deposit order', [{ plan_id: 0, status: 3 }]],
+  ])('rejects %s before resetSecurity', async (_case, orders) => {
+    const upstreamFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ data: orders }));
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.fetch(rotationRequest(), env);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SUBSCRIPTION_ACCESS_UNAVAILABLE' },
+    });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+    expect(upstreamFetch.mock.calls[0][0]).toBe(
+      'https://private.example/api/v1/user/order/fetch'
+    );
+  });
+
+  it.each([1, 3, 4])(
+    'rotates status %s into a solution-owned URL with exactly two calls',
+    async (status) => {
+      const token = `ROTATED_SECRET_TOKEN_${status}`;
+      const upstreamFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ plan_id: 7, status }] })
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: `https://v2board-hidden.example/raw/subscribe?token=${token}`,
+            uuid: 'private-uuid',
+          })
+        );
+      vi.stubGlobal('fetch', upstreamFetch);
+
+      const response = await app.fetch(rotationRequest(), env);
+      const text = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(text)).toEqual({
+        ok: true,
+        data: {
+          rotated: true,
+          accessUrl:
+            `https://gateway.example/api/v1/access/subscription?token=${token}`,
+        },
+        requestId: 'request-id',
+      });
+      expect(text).not.toContain('v2board-hidden.example');
+      expect(text).not.toContain('/raw/subscribe');
+      expect(text).not.toContain('private-uuid');
+      expect(Object.keys(JSON.parse(text).data)).toEqual(['rotated', 'accessUrl']);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(upstreamFetch).toHaveBeenCalledTimes(2);
+      expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
+        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/resetSecurity',
+      ]);
+    }
+  );
+
+  it('requires auth and does not accept GET as a mutation method', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const unauthenticated = await app.request(
+      'https://gateway.example/api/v1/subscription/rotate-access',
+      { method: 'POST' },
+      env
+    );
+    const get = await app.fetch(rotationRequest('GET'), env);
+
+    expect(unauthenticated.status).toBe(401);
+    expect(await unauthenticated.json()).toMatchObject({
+      error: { code: 'AUTH_REQUIRED' },
+    });
+    expect(get.status).toBe(404);
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Reset failed', 'SUBSCRIPTION_ROTATION_FAILED'],
+    ['重置失败', 'SUBSCRIPTION_ROTATION_FAILED'],
+    ['The user does not exist', 'UPSTREAM_ERROR'],
+    ['Unknown reset failure', 'UPSTREAM_ERROR'],
+  ])('normalizes %s without leaking it', async (message, code) => {
+    const token = 'ROTATED_SECRET_TOKEN_ABC123';
+    const upstreamFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ message, token, uuid: 'private-uuid' }, 500)
+      );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.fetch(rotationRequest(), env);
+    const text = await response.text();
+
+    expect(response.status).toBe(502);
+    expect(text).toContain(code);
+    expect(text).not.toContain(message);
+    expect(text).not.toContain(token);
+    expect(text).not.toContain('private-uuid');
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('normalizes timeout without retry, getSubscribe, or sensitive logs', async () => {
+    const secret = 'ROTATED_SECRET_TOKEN_ABC123';
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const upstreamFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+      )
+      .mockRejectedValueOnce(
+        new DOMException(`timed out ${secret}`, 'TimeoutError')
+      );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.fetch(rotationRequest(), env);
+    const text = await response.text();
+
+    expect(response.status).toBe(504);
+    expect(text).toContain('UPSTREAM_TIMEOUT');
+    expect(text).not.toContain(secret);
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
+      'https://private.example/api/v1/user/order/fetch',
+      'https://private.example/api/v1/user/resetSecurity',
+    ]);
+    const logged = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
+    expect(logged).not.toContain(secret);
+    expect(logged).not.toContain('private.example');
+    expect(logged).not.toContain('opaque-auth');
+  });
+
+  it('validates the public origin before mutating credentials', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.fetch(
+      new Request('http://gateway.example/api/v1/subscription/rotate-access', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer opaque-auth' },
+      }),
+      env
+    );
+
+    expect(response.status).toBe(502);
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/v1/access/subscription', () => {
   it.each([
     ['Clash YAML', 'proxies:\n  - name: test\n'],

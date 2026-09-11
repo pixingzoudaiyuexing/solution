@@ -138,6 +138,20 @@ export class V2BoardSubscriptionUnavailableError extends Error {
   }
 }
 
+export class V2BoardSubscriptionAccessUnavailableError extends Error {
+  constructor() {
+    super('V2Board subscription access is unavailable');
+    this.name = 'V2BoardSubscriptionAccessUnavailableError';
+  }
+}
+
+export class V2BoardSubscriptionRotationError extends Error {
+  constructor() {
+    super('V2Board subscription credential rotation failed');
+    this.name = 'V2BoardSubscriptionRotationError';
+  }
+}
+
 export class V2BoardTicketNotFoundError extends Error {
   constructor() {
     super('V2Board ticket not found');

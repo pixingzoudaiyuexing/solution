@@ -25,6 +25,7 @@
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
 | `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
+| `POST /api/v1/subscription/rotate-access` | Yes         | `user/order/fetch` + `GET user/resetSecurity` |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /api/v1/tickets`                  | Yes            | `user/ticket/fetch`             |
@@ -512,7 +513,7 @@ V2Board 订单历史中存在 `plan_id>0` 且状态为 paid/processing、complet
 GET /api/v1/access/subscription?token=<opaque-token>
 ```
 
-该 endpoint 不使用浏览器 Bearer Header；query token 本身是敏感 subscription bearer credential。token 必须是 1 至 512 字符的 URL-safe `A-Z a-z 0-9 _ -` 字符串，支持兼容 V2Board 的 normal、OTP 和 time-based token。Gateway 不保存、哈希、轮换或重新签发 token。
+该 endpoint 不使用浏览器 Bearer Header；query token 本身是敏感 subscription bearer credential。token 必须是 1 至 512 字符的 URL-safe `A-Z a-z 0-9 _ -` 字符串，支持兼容 V2Board 的 normal、OTP 和 time-based token。Gateway 不保存、哈希或自行签发 token；Phase 2P 的显式 rotation 仍由 V2Board 生成并持久化新 credential。
 
 V2Board subscription path 由部署配置 `V2BOARD_SUBSCRIBE_PATH` 固定提供。它必须是单一根相对路径，不能来自请求，也不能包含 scheme、authority、query、fragment、反斜线、percent encoding 或 traversal。subscription 请求仍通过 `V2BoardClient`，继续使用 10 秒 timeout 和 `redirect: manual`；当前冻结部署不使用 Cloudflare Access Service Token。
 
@@ -1331,7 +1332,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2O 增加 Commission Withdrawal Request 后，本文件顶部矩阵包含 36 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2P 增加 Subscription Credential Rotation 后，本文件顶部矩阵包含 37 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1341,7 +1342,7 @@ v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/C
 - **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
-Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin、`newPeriod` 和直接暴露 V2Board `resetSecurity` controller 命名不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
 
 ## Phase 2M Gift Card Redemption
 
@@ -1535,3 +1536,54 @@ Withdrawal Request 是非幂等 mutation，每次成功请求都可能创建新�
 Withdrawal account 是敏感财务信息：它不出现在 withdrawal success/error response、application log、request metadata 或 tracing custom field。现有 owner-authenticated Ticket Detail 仍可能按 V2Board 原始 TicketMessage 显示用户自己的 account；该读取行为不改变现有 Ticket DTO，Ticket message 同样不进入 application log。
 
 Automatic payout、payout provider integration、amount selection、commission reservation/deduction/freeze、admin withdrawal management、Gateway withdrawal state 和 duplicate detection 均不属于 solution Public Contract。
+
+## Phase 2P Subscription Credential Rotation
+
+```http
+POST /api/v1/subscription/rotate-access
+Authorization: Bearer <opaque-token>
+```
+
+Request body：无。Public Contract 使用 POST 表达 credential mutation，不暴露官方 `resetSecurity` 命名，也不要求发送 `{}`。GET 同路径不是有效 API，且绝不触发 mutation。
+
+rotation 复用 `GET /api/v1/subscription` 已有的 previous-purchaser eligibility policy：V2Board 订单历史必须至少存在一笔 `plan_id>0` 且 status 为 1、3 或 4 的订单。空历史、只有 pending/cancelled 或只有 `plan_id=0` deposit order 时返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，只执行 `GET user/order/fetch`，不调用 `resetSecurity`。
+
+eligible 成功路径严格包含两次 upstream 调用：
+
+```text
+GET user/order/fetch
+GET user/resetSecurity
+```
+
+不会先调用 `user/getSubscribe`，也不会执行额外 refresh。官方第二个 GET 实际会修改 `user.uuid` 和 `user.token`；Gateway 将其视为非幂等 mutation。官方 response 的 `data` 必须是长度 1 至 8192 的 subscription URL，并继续通过现有 `extractSubscriptionToken` / `validateSubscriptionToken` 完整安全边界提取新 token。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "rotated": true,
+    "accessUrl": "https://gateway.example/api/v1/access/subscription?token=new-credential"
+  },
+  "requestId": "request-id"
+}
+```
+
+`accessUrl` 使用经过 `validateGatewayPublicOrigin` 验证的当前 solution HTTPS origin 构建，与 `GET /api/v1/subscription` 一致。Public response 不返回 standalone token、UUID、raw V2Board URL、V2Board hostname 或 subscribe path；新 token 只允许作为 authenticated eligible user 响应中的 solution-owned access URL credential。token、UUID 和 raw URL 不进入 application log、error log、request metadata 或 tracing custom field。
+
+Rotation 会同时替换 V2Board token 和 UUID。旧 subscription URL 将失效；此前客户端已经拉取的旧节点 UUID 也可能失效，客户端需要使用新 access URL 重新获取订阅。这不是单纯刷新 UI URL。
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
+| 409 | `SUBSCRIPTION_ACCESS_UNAVAILABLE` | 不满足已有 previous-purchaser access policy；不会执行 mutation |
+| 502 | `SUBSCRIPTION_ROTATION_FAILED` | 官方 exact `Reset failed` / `重置失败` |
+| 502 | `UPSTREAM_ERROR` | malformed URL/response、HTML、invalid JSON 或未知 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | rotation 结果未知 |
+
+官方 `99f8526` 的保存失败原文是 `Reset failed`，不是 `Save failed`；Adapter 只匹配经过源码确认的 exact 英文及中文翻译。`The user does not exist` 和其他未知错误遵循通用 `UPSTREAM_ERROR`，raw message 不对外返回。
+
+Rotation 不可自动重试：盲目重试会再次生成 credential，使 Client 可能刚收到的新 URL 立即失效。`UPSTREAM_TIMEOUT` 或 mutation 上的未知 `UPSTREAM_ERROR` 都可能发生在 V2Board 保存后；Client 应先调用 `GET /api/v1/subscription` 获取当前权威 solution access URL，而不是立即再次 rotate。Gateway 不执行自动 recovery read、不推断第一次结果，也不保存 current/previous token、rotation state 或 idempotency state。
+
+Gateway 保持 stateless；不增加 KV、D1、Durable Objects、Redis、数据库或 idempotency key。Existing subscription metadata、overview、verbatim streaming、User-Agent forwarding 和 response header allowlist 均保持不变。

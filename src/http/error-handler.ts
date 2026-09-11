@@ -29,6 +29,8 @@ import {
   V2BoardRateLimitedError,
   V2BoardReferralCodeLimitError,
   V2BoardRegistrationUnavailableError,
+  V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionRotationError,
   V2BoardTicketCloseError,
   V2BoardTicketCreateError,
   V2BoardTicketNotFoundError,
@@ -124,6 +126,28 @@ export const errorHandler: ErrorHandler = (err, c) => {
       publicErrorResponse(
         'WITHDRAWAL_REQUEST_FAILED',
         'Unable to create withdrawal request',
+        id
+      ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionAccessUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_ACCESS_UNAVAILABLE',
+        'Subscription access is unavailable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionRotationError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_ROTATION_FAILED',
+        'Unable to rotate subscription access',
         id
       ),
       502

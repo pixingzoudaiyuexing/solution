@@ -9,6 +9,17 @@ export interface SubscriptionAccessSuccessResponse {
   requestId: string;
 }
 
+export interface SubscriptionAccessRotated {
+  rotated: true;
+  accessUrl: string;
+}
+
+export interface SubscriptionAccessRotationSuccessResponse {
+  ok: true;
+  data: SubscriptionAccessRotated;
+  requestId: string;
+}
+
 export interface SubscriptionOverviewProduct {
   id: string;
   name: string;

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
+  V2BoardAuthenticationError,
+  V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionRotationError,
   V2BoardSubscriptionUnavailableError,
   V2BoardTimeoutError,
   V2BoardUpstreamError,
@@ -238,6 +241,178 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
         'https://private.example/api/v1/'
       )
     ).toThrow('Invalid Gateway public origin');
+  });
+});
+
+describe('V2BoardSubscriptionAdapter credential rotation', () => {
+  it.each([
+    ['no orders', []],
+    ['pending only', [{ plan_id: 7, status: 0 }]],
+    ['cancelled only', [{ plan_id: 7, status: 2 }]],
+    [
+      'deposit only',
+      [
+        { plan_id: 0, status: 1 },
+        { plan_id: 0, status: 3 },
+        { plan_id: 0, status: 4 },
+      ],
+    ],
+  ])('does not mutate credentials for %s', async (_case, data) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data })
+    );
+
+    await expect(
+      createAdapter(fetcher).rotateAccess('opaque-auth')
+    ).rejects.toBeInstanceOf(V2BoardSubscriptionAccessUnavailableError);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://private.example/api/v1/user/order/fetch'
+    );
+  });
+
+  it.each([1, 3, 4])(
+    'uses exactly eligibility and resetSecurity for qualifying status %s',
+    async (status) => {
+      const token = `ROTATED_SECRET_TOKEN_${status}`;
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ plan_id: 7, status }] })
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: `https://v2board-hidden.example/secret/path?token=${token}`,
+            uuid: 'must-not-leak',
+          })
+        );
+
+      await expect(
+        createAdapter(fetcher).rotateAccess('opaque-auth')
+      ).resolves.toBe(token);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/resetSecurity',
+      ]);
+      expect(fetcher.mock.calls[1][1]?.method).toBe('GET');
+      expect(fetcher.mock.calls[1][1]?.body).toBeUndefined();
+      expect(fetcher.mock.calls[1][1]?.redirect).toBe('manual');
+    }
+  );
+
+  it.each([
+    '',
+    'not-a-url',
+    'https://hidden.example/sub',
+    'https://hidden.example/sub?other=token',
+    'https://hidden.example/sub?token=one&other=two',
+    'https://hidden.example/sub?token=one#fragment',
+    'https://user:password@hidden.example/sub?token=one',
+    'javascript:alert(1)?token=one',
+    'https://hidden.example/sub?token=bad%2Ftoken',
+    'https://hidden.example/sub?token=line%0Abreak',
+  ])('fails closed on malformed rotated URL %s', async (url) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: url }));
+
+    await expect(
+      createAdapter(fetcher).rotateAccess('opaque-auth')
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    {},
+    { data: null },
+    { data: 1 },
+    { data: {} },
+    { data: 'x'.repeat(8193) },
+  ])('fails closed on malformed rotation response %#', async (payload) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+      )
+      .mockResolvedValueOnce(jsonResponse(payload));
+
+    await expect(
+      createAdapter(fetcher).rotateAccess('opaque-auth')
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it.each(['Reset failed', '重置失败'])(
+    'maps exact official rotation failure %s',
+    async (message) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+        )
+        .mockResolvedValueOnce(jsonResponse({ message }, 500));
+
+      await expect(
+        createAdapter(fetcher).rotateAccess('opaque-auth')
+      ).rejects.toBeInstanceOf(V2BoardSubscriptionRotationError);
+    }
+  );
+
+  it('does not misclassify Save failed or unknown messages', async () => {
+    for (const message of ['Save failed', 'Reset failed with database detail']) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+        )
+        .mockResolvedValueOnce(jsonResponse({ message }, 500));
+      await expect(
+        createAdapter(fetcher).rotateAccess('opaque-auth')
+      ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    }
+  });
+
+  it('normalizes auth, invalid JSON, HTML, and timeout without retry or recovery reads', async () => {
+    const auth = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ message: 'Session expired' }, 403));
+    await expect(
+      createAdapter(auth).rotateAccess('opaque-auth')
+    ).rejects.toBeInstanceOf(V2BoardAuthenticationError);
+    expect(auth).toHaveBeenCalledOnce();
+
+    for (const response of [
+      new Response('{invalid', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      new Response('<h1>private failure</h1>', { status: 500 }),
+    ]) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+        )
+        .mockResolvedValueOnce(response);
+      await expect(
+        createAdapter(fetcher).rotateAccess('opaque-auth')
+      ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    }
+
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
+      )
+      .mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+    await expect(
+      createAdapter(timeoutFetcher).rotateAccess('opaque-auth')
+    ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+    expect(timeoutFetcher).toHaveBeenCalledTimes(2);
   });
 });
 
