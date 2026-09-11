@@ -1361,7 +1361,7 @@ type=1 -> { type: "balance", amountMinor: integer }
 type=2 -> { type: "validity", days: integer }
 type=3 -> { type: "traffic", gigabytes: integer }
 type=4 -> { type: "trafficReset" }
-type=5, value>0 -> { type: "plan", durationDays: integer }
+type=5, value!=0 -> { type: "plan", durationDays: signed integer }
 type=5, value=0 -> { type: "plan", durationDays: null }
 ```
 
@@ -1378,7 +1378,9 @@ Response：
 }
 ```
 
-Type 1 `value` 是 V2Board 最小货币单位，Gateway 不除以 100、不猜币种。Type 2/5 是天数，Gateway 不计算 `expiresAt`。Type 3 是官方 GiB 数量，Gateway 不转换 bytes。Type 4 忽略无业务意义的 value。余额、有效期、流量、套餐、使用次数和 per-user usage 全由 V2Board 原子事务处理。
+官方 Gift Card `value` 是 signed INT，合法范围为 `-2147483648..2147483647`，Gateway 在 effect DTO 中原样报告，不限制或解释其业务方向，也不执行 abs、round、floor、ceil、truncate、clamp 或其他转换；Gift Card 配置正确性由 V2Board/Admin 管理。这不是新增“扣余额卡”等产品能力。
+
+Type 1 `value` 是 V2Board 最小货币单位，Gateway 不除以 100、不猜币种。Type 2/5 是天数，Gateway 不计算 `expiresAt`；Type 5 仅将官方明确的 `value=0` 规范化为 `durationDays=null`，负数保持原值。Type 3 是官方 GiB 数量，Gateway 不转换 bytes。Type 4 忽略无业务意义的 value。余额、有效期、流量、套餐、使用次数和 per-user usage 全由 V2Board 原子事务处理。
 
 | HTTP | Code |
 | --- | --- |

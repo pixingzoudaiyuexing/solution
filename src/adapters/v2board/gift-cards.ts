@@ -13,28 +13,21 @@ import {
   V2BoardUpstreamError,
 } from './errors';
 
-const effectValueSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .max(Number.MAX_SAFE_INTEGER);
-const ignoredResetValueSchema = z
+const giftCardValueSchema = z
   .number()
   .int()
   .min(-2_147_483_648)
-  .max(2_147_483_647)
-  .nullable()
-  .optional();
+  .max(2_147_483_647);
 const successSchema = z.discriminatedUnion('type', [
-  z.object({ data: z.literal(true), type: z.literal(1), value: effectValueSchema }).strip(),
-  z.object({ data: z.literal(true), type: z.literal(2), value: effectValueSchema }).strip(),
-  z.object({ data: z.literal(true), type: z.literal(3), value: effectValueSchema }).strip(),
+  z.object({ data: z.literal(true), type: z.literal(1), value: giftCardValueSchema }).strip(),
+  z.object({ data: z.literal(true), type: z.literal(2), value: giftCardValueSchema }).strip(),
+  z.object({ data: z.literal(true), type: z.literal(3), value: giftCardValueSchema }).strip(),
   z.object({
     data: z.literal(true),
     type: z.literal(4),
-    value: ignoredResetValueSchema,
+    value: giftCardValueSchema.nullable().optional(),
   }).strip(),
-  z.object({ data: z.literal(true), type: z.literal(5), value: effectValueSchema }).strip(),
+  z.object({ data: z.literal(true), type: z.literal(5), value: giftCardValueSchema }).strip(),
 ]);
 const errorResponseSchema = z
   .object({ message: z.string().optional(), error: z.string().optional() })

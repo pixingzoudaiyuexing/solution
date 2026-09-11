@@ -62,6 +62,10 @@ describe('V2BoardGiftCardsAdapter effect mapping', () => {
       { redeemed: true, effect: { type: 'trafficReset' } },
     ],
     [
+      { data: true, type: 4, value: -2_147_483_648 },
+      { redeemed: true, effect: { type: 'trafficReset' } },
+    ],
+    [
       { data: true, type: 5, value: 30 },
       { redeemed: true, effect: { type: 'plan', durationDays: 30 } },
     ],
@@ -100,6 +104,39 @@ describe('V2BoardGiftCardsAdapter effect mapping', () => {
       giftcard: ' MixedCaseCode ',
     });
   });
+
+  it.each([
+    [1, { redeemed: true, effect: { type: 'balance', amountMinor: -1 } }],
+    [2, { redeemed: true, effect: { type: 'validity', days: -1 } }],
+    [3, { redeemed: true, effect: { type: 'traffic', gigabytes: -1 } }],
+    [5, { redeemed: true, effect: { type: 'plan', durationDays: -1 } }],
+  ] as const)('reports official signed value for type %s verbatim', async (type, expected) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: true, type, value: -1 })
+      )
+    );
+
+    await expect(adapter.redeem('opaque-token', 'GiftCard123')).resolves.toEqual(
+      expected
+    );
+  });
+
+  it.each([-2_147_483_648, 2_147_483_647])(
+    'accepts official signed INT boundary %s after successful mutation',
+    async (value) => {
+      const adapter = createAdapter(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          jsonResponse({ data: true, type: 1, value })
+        )
+      );
+
+      await expect(adapter.redeem('opaque-token', 'GiftCard123')).resolves.toEqual({
+        redeemed: true,
+        effect: { type: 'balance', amountMinor: value },
+      });
+    }
+  );
 });
 
 describe('V2BoardGiftCardsAdapter strict success validation', () => {
@@ -113,9 +150,9 @@ describe('V2BoardGiftCardsAdapter strict success validation', () => {
     ['balance missing value', { data: true, type: 1 }],
     ['balance string value', { data: true, type: 1, value: '100' }],
     ['validity float', { data: true, type: 2, value: 1.5 }],
-    ['traffic negative', { data: true, type: 3, value: -1 }],
     ['traffic reset string', { data: true, type: 4, value: 'ignored' }],
-    ['plan negative', { data: true, type: 5, value: -1 }],
+    ['below signed INT', { data: true, type: 1, value: -2_147_483_649 }],
+    ['above signed INT', { data: true, type: 1, value: 2_147_483_648 }],
     [
       'unsafe integer',
       { data: true, type: 1, value: Number.MAX_SAFE_INTEGER + 1 },
