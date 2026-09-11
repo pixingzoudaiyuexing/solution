@@ -186,3 +186,52 @@ export class V2BoardReferralCodeLimitError extends Error {
     this.name = 'V2BoardReferralCodeLimitError';
   }
 }
+
+export class V2BoardGiftCardNotFoundError extends Error {
+  constructor() {
+    super('V2Board gift card not found');
+    this.name = 'V2BoardGiftCardNotFoundError';
+  }
+}
+
+export class V2BoardGiftCardNotActiveError extends Error {
+  constructor() {
+    super('V2Board gift card not active');
+    this.name = 'V2BoardGiftCardNotActiveError';
+  }
+}
+
+export class V2BoardGiftCardExpiredError extends Error {
+  constructor() {
+    super('V2Board gift card expired');
+    this.name = 'V2BoardGiftCardExpiredError';
+  }
+}
+
+export class V2BoardGiftCardUsageLimitError extends Error {
+  constructor() {
+    super('V2Board gift card usage limit reached');
+    this.name = 'V2BoardGiftCardUsageLimitError';
+  }
+}
+
+export class V2BoardGiftCardAlreadyRedeemedError extends Error {
+  constructor() {
+    super('V2Board gift card already redeemed');
+    this.name = 'V2BoardGiftCardAlreadyRedeemedError';
+  }
+}
+
+export class V2BoardGiftCardNotApplicableError extends Error {
+  constructor() {
+    super('V2Board gift card not applicable');
+    this.name = 'V2BoardGiftCardNotApplicableError';
+  }
+}
+
+export class V2BoardGiftCardRedeemError extends Error {
+  constructor() {
+    super('V2Board gift card redemption failed');
+    this.name = 'V2BoardGiftCardRedeemError';
+  }
+}

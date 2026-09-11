@@ -30,6 +30,7 @@ import { ticketsRouter } from './v1/tickets';
 import { noticesRouter } from './v1/notices';
 import { trafficRouter } from './v1/traffic';
 import { referralsRouter } from './v1/referrals';
+import { giftCardsRouter } from './v1/gift-cards';
 
 const emailSchema = z.string().trim().email().max(254);
 const loginRequestSchema = z
@@ -188,5 +189,6 @@ v1Router.route('/tickets', ticketsRouter);
 v1Router.route('/notices', noticesRouter);
 v1Router.route('/traffic', trafficRouter);
 v1Router.route('/referrals', referralsRouter);
+v1Router.route('/gift-cards', giftCardsRouter);
 
 export { v1Router };

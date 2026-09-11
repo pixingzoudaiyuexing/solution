@@ -38,6 +38,7 @@
 | `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
 | `GET /api/v1/referrals/commissions`    | Yes            | `user/invite/details`           |
+| `POST /api/v1/gift-cards/redeem`       | Yes            | `user/redeemgiftcard`           |
 
 ## Phase 2A 已实现契约
 
@@ -1327,7 +1328,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract 已冻结为本文件顶部矩阵中的 32 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2M 增加 Gift Card Redemption 后，本文件顶部矩阵包含 33 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1337,4 +1338,59 @@ v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/C
 - **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
-Active Session、Gift Card、Quick Login、commission transfer、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+Gift Card 管理/创建/list/preview、Active Session、Quick Login、commission transfer、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+
+## Phase 2M Gift Card Redemption
+
+```http
+POST /api/v1/gift-cards/redeem
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+```json
+{ "code": "gift-card-code" }
+```
+
+`code` 必填，长度 1 至 255，保持大小写和首尾字符原样；strict schema 拒绝额外字段。Adapter 只映射为 `{ "giftcard": "..." }` 并调用官方 `POST user/redeemgiftcard`。Gateway 不查询 Giftcard/Plan、不预判资格、不生成或保存 code，也不修改任何业务状态。
+
+成功要求官方严格返回 `data=true` 与 numeric `type`。Public `effect` 为：
+
+```text
+type=1 -> { type: "balance", amountMinor: integer }
+type=2 -> { type: "validity", days: integer }
+type=3 -> { type: "traffic", gigabytes: integer }
+type=4 -> { type: "trafficReset" }
+type=5, value>0 -> { type: "plan", durationDays: integer }
+type=5, value=0 -> { type: "plan", durationDays: null }
+```
+
+Response：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "redeemed": true,
+    "effect": { "type": "traffic", "gigabytes": 1 }
+  },
+  "requestId": "request-id"
+}
+```
+
+Type 1 `value` 是 V2Board 最小货币单位，Gateway 不除以 100、不猜币种。Type 2/5 是天数，Gateway 不计算 `expiresAt`。Type 3 是官方 GiB 数量，Gateway 不转换 bytes。Type 4 忽略无业务意义的 value。余额、有效期、流量、套餐、使用次数和 per-user usage 全由 V2Board 原子事务处理。
+
+| HTTP | Code |
+| --- | --- |
+| 400 | `VALIDATION_ERROR` |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` |
+| 404 | `GIFT_CARD_NOT_FOUND` |
+| 409 | `GIFT_CARD_NOT_ACTIVE` / `GIFT_CARD_EXPIRED` |
+| 409 | `GIFT_CARD_USAGE_LIMIT_REACHED` / `GIFT_CARD_ALREADY_REDEEMED` |
+| 409 | `GIFT_CARD_NOT_APPLICABLE` |
+| 502 | `GIFT_CARD_REDEEM_FAILED` / `UPSTREAM_ERROR` |
+| 504 | `UPSTREAM_TIMEOUT` |
+
+业务错误只按官方完整 exact message 映射，不返回 raw V2Board/Laravel message。Gift Card code 不进入响应、application log 或 request metadata。兑换是非幂等 mutation，Gateway 不自动 retry；收到 `UPSTREAM_TIMEOUT` 后，Client 不应盲目重复提交，应先刷新 subscription overview 或其他权威账户状态。再次提交得到 `GIFT_CARD_ALREADY_REDEEMED` 不能由 Gateway 自动推断第一次结果。
+
+Gift Card 管理、创建、list、preview 不属于 solution Public Contract。Admin Gift Card 能力仅可用于受控 staging 验收。

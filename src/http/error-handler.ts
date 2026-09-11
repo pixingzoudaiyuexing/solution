@@ -6,6 +6,13 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardGiftCardAlreadyRedeemedError,
+  V2BoardGiftCardExpiredError,
+  V2BoardGiftCardNotActiveError,
+  V2BoardGiftCardNotApplicableError,
+  V2BoardGiftCardNotFoundError,
+  V2BoardGiftCardRedeemError,
+  V2BoardGiftCardUsageLimitError,
   V2BoardNoticeNotFoundError,
   V2BoardOrderCreateError,
   V2BoardOrderCancelError,
@@ -48,6 +55,71 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('AUTH_FAILED', 'Authentication failed', id),
       401
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardNotFoundError) {
+    return c.json(
+      publicErrorResponse('GIFT_CARD_NOT_FOUND', 'Gift card unavailable', id),
+      404
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardNotActiveError) {
+    return c.json(
+      publicErrorResponse('GIFT_CARD_NOT_ACTIVE', 'Gift card is not active', id),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardExpiredError) {
+    return c.json(
+      publicErrorResponse('GIFT_CARD_EXPIRED', 'Gift card has expired', id),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardUsageLimitError) {
+    return c.json(
+      publicErrorResponse(
+        'GIFT_CARD_USAGE_LIMIT_REACHED',
+        'Gift card usage limit reached',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardAlreadyRedeemedError) {
+    return c.json(
+      publicErrorResponse(
+        'GIFT_CARD_ALREADY_REDEEMED',
+        'Gift card already redeemed',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardNotApplicableError) {
+    return c.json(
+      publicErrorResponse(
+        'GIFT_CARD_NOT_APPLICABLE',
+        'Gift card is not applicable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardGiftCardRedeemError) {
+    return c.json(
+      publicErrorResponse(
+        'GIFT_CARD_REDEEM_FAILED',
+        'Unable to redeem gift card',
+        id
+      ),
+      502
     );
   }
 
