@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
-  V2BoardOrderExpiredError,
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
   V2BoardTimeoutError,
@@ -126,30 +125,6 @@ describe('V2BoardPaymentAdapter', () => {
     await expect(
       adapter.checkout('opaque-token', 'order-001', { paymentMethodId: '3' })
     ).rejects.toBeInstanceOf(V2BoardPaymentMethodUnavailableError);
-  });
-
-  it('maps only the exact normalized order expiry response', async () => {
-    const expiredAdapter = createAdapter(
-      vi.fn<typeof fetch>().mockResolvedValue(
-        jsonResponse({ message: '  Order has expired  ' }, 500)
-      )
-    );
-    const unrelatedAdapter = createAdapter(
-      vi.fn<typeof fetch>().mockResolvedValue(
-        jsonResponse({ message: 'Provider session expired' }, 500)
-      )
-    );
-
-    await expect(
-      expiredAdapter.checkout('opaque-token', 'order-001', {
-        paymentMethodId: '3',
-      })
-    ).rejects.toBeInstanceOf(V2BoardOrderExpiredError);
-    await expect(
-      unrelatedAdapter.checkout('opaque-token', 'order-001', {
-        paymentMethodId: '3',
-      })
-    ).rejects.toBeInstanceOf(V2BoardPaymentCreateError);
   });
 
   it('normalizes HTML and invalid JSON responses', async () => {

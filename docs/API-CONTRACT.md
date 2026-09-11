@@ -203,7 +203,7 @@ Success：
       "amountMinor": 1099,
       "createdAt": "2024-01-01T00:00:00.000Z",
       "updatedAt": "2024-01-02T00:00:00.000Z",
-      "expiresAt": "2024-01-01T02:00:00.000Z"
+      "expiresAt": null
     }
   ],
   "requestId": "request-id"
@@ -212,7 +212,7 @@ Success：
 
 `id` 来自 V2Board `trade_no`。`amountMinor` 直接使用 V2Board 的整数 `total_amount`，Gateway 不进行浮点金额运算。V2Board `order/fetch` 不返回明确 currency，因此币种仍属于待解决契约项。
 
-`expiresAt` 直接来自兼容 V2Board User Order API 的权威 `expires_at`，Gateway 只将 Unix timestamp 转为 ISO 8601，不计算过期时间。该 upstream 字段必填；缺失或 malformed 时按 `UPSTREAM_ERROR` fail closed。
+`expiresAt` 为 ISO 8601 时间或 `null`。官方 V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88` 的 User Order API 不返回权威 `expires_at`，因此 Gateway 返回 `null`，不会根据 `created_at` 或后台任务周期自行计算过期时间。未来兼容上游如果返回合法的整数 `expires_at`，Gateway 会将其转换为 ISO 8601；显式 `null` 或字段缺失都映射为 `null`，malformed 值仍按 `UPSTREAM_ERROR` fail closed。
 
 状态映射：
 
@@ -281,7 +281,7 @@ Success 使用与 Orders List 相同的单个 Order DTO：
     "amountMinor": 1099,
     "createdAt": "2024-01-01T00:00:00.000Z",
     "updatedAt": null,
-    "expiresAt": "2024-01-01T02:00:00.000Z"
+    "expiresAt": null
   },
   "requestId": "request-id"
 }
@@ -415,23 +415,11 @@ Payment Provider callback 直接进入 V2Board。Gateway 不提供 callback/webh
 
 ### Order Expiration Compatibility
 
-当前兼容目标是 `pixingzoudaiyuexing/v2board` `master @ e575c38227f6de9aace98d46b2de64e0dea581a82`。其 User Order list/detail 明确返回权威 `expires_at`，并在 checkout 内执行权威过期校验。
+当前兼容目标是官方 `wyx2685/v2board` `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`（`1.7.5.2685.2333`）。该版本通过 V2Board 自己的后台订单任务处理过期状态，但 User Order list/detail 不公开权威 expiry，checkout 也不保证同步返回独立的过期错误。
 
-Gateway 要求 list/detail 的每个 upstream Order 都包含合法整数 `expires_at`，并映射为 Public DTO 的 ISO 8601 `expiresAt`。Gateway 不保存或推导 expiry，也不根据本地时钟拒绝 checkout。硬截止附近短暂出现 `status=pending` 且 `expiresAt` 已到达是合法的最终一致状态；Public `OrderStatus` 不增加 `expired`。
+因此官方基线下 `expiresAt` 为 `null`。Gateway 不保存或推导 expiry，不根据本地时钟或 `created_at` 拒绝 checkout；Client Application 应通过 Order Detail 重新读取 V2Board 持有的订单状态。未来兼容上游提供合法 `expires_at` 时，Gateway 可直接映射该权威值，不需要改变 Public DTO。
 
-推荐 Client Application 流程：
-
-```text
-create order
--> GET order detail and receive expiresAt
--> checkout
--> display payment action
--> poll/refetch order detail while visible and current time < expiresAt
-```
-
-当 `current time >= expiresAt` 时，Client Application 应停止轮询、关闭 QR、显示订单已过期，并要求创建新的订单/支付尝试。浏览器进入后台时可暂停高频轮询；恢复可见时重新请求 `GET /api/v1/orders/{id}`。这些属于 Consumer 展示行为，Worker 不实现 timer。Create Order 仍只返回 ID，Checkout success response 仍只返回 `finished`、`qrcode` 或 `redirect`。
-
-V2Board checkout 返回精确的 `Order has expired` 业务错误时，Gateway 映射为 `409 ORDER_EXPIRED`。其他包含 `expired` 字样的未知上游错误不会被宽泛归类。
+Gateway 保留对精确 `Order has expired` 上游错误的兼容映射，但官方基线不承诺产生该错误，Client Application 不得依赖 `ORDER_EXPIRED` 必然出现。其他包含 `expired` 字样的未知上游错误不会被宽泛归类。
 
 ### Payment Errors
 
@@ -440,7 +428,7 @@ V2Board checkout 返回精确的 `Order has expired` 业务错误时，Gateway �
 | 400  | `VALIDATION_ERROR`           | order ID、JSON body、payment method ID 或 checkout User-Agent 无效 |
 | 401  | `AUTH_REQUIRED`              | 缺少或无法识别 Bearer credential |
 | 401  | `AUTH_FAILED`                | V2Board 拒绝当前 credential |
-| 409  | `ORDER_EXPIRED`              | V2Board 权威 checkout 校验确认订单已过期 |
+| 409  | `ORDER_EXPIRED`              | 仅当兼容上游明确返回精确订单过期错误；官方 `99f8526` 不保证产生 |
 | 422  | `PAYMENT_METHOD_UNAVAILABLE` | V2Board 明确确认支付渠道不可用 |
 | 502  | `PAYMENT_CREATE_FAILED`      | V2Board 可识别的支付创建失败、未知 type 或不安全/malformed 支付动作 |
 | 502  | `UPSTREAM_ERROR`             | HTML、无效 JSON 或无法安全分类的上游故障 |

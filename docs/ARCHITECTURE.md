@@ -37,5 +37,5 @@ Client Application
 ## 网络与安全模型
 - **无状态**: 不使用 KV/D1/Durable Objects 存储业务数据。
 - **认证边界**: Gateway 原样传递 `auth_data`，由 V2Board 完成 Token 验证，不自建 Session。
-- **Origin 保护**: 采用 Cloudflare Tunnel + Access，限制网关直接访问 V2Board 隐藏源站。
-- **Callback 隔离**: 支付回调使用独立的 `payment-callback.example` 域名，由 WAF 和 Tunnel 路径白名单实现双层过滤。
+- **Origin 暴露**: V2Board 保持公网可达（满足 Admin / Node / Payment Provider 直连需求）。Gateway 仅通过 DTO 层提供 API 抽象与后端隐藏，不实施强制网络隔离（Mandatory Access Control）。
+- **Callback 路由**: 支付回调直接进入 V2Board 域名，不经过 Gateway。
