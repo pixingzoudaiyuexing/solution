@@ -1306,7 +1306,13 @@ Success：
 
 CommissionLog `trade_no` 可能属于被邀请用户的订单，Public DTO 绝不返回它，也不返回 CommissionLog `id`、`user_id`、`invite_user_id` 或其他订单字段。`commissionAmountMinor` 只能来自官方 `get_amount`，不得通过订单金额乘比例重算。
 
-官方多级分销开启时，`pending commission` 源码会对最小单位整数做比例乘法。如果官方返回 fractional minor value，Gateway 不舍入或截断，而是 fail closed 为 `UPSTREAM_ERROR`；staging 当前多级分销关闭，实际 stats 为整数。
+### Multi-Level Commission Distribution
+
+solution 不支持 V2Board multi-level commission distribution（多级分销）。这是明确且永久的 Non-goal，当前项目不计划增加多级佣金兼容逻辑。所有 solution 部署必须保持 V2Board `commission_distribution_enable` 为 disabled / `0`。
+
+在该受支持配置下，`pendingCommissionMinor` 保持 integer minor unit。solution 不接受 fractional pending commission，也不对金额执行 `round`、`floor`、`ceil`、truncate 或其他隐式修正。
+
+如果 upstream 在不受支持的多级分销配置下返回 fractional pending commission，Gateway fail closed 为 `UPSTREAM_ERROR` 是预期行为，不属于兼容性缺陷。
 
 ### Phase 2K Errors
 
