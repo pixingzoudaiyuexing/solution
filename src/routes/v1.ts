@@ -20,6 +20,7 @@ import {
 } from '../security/authorization';
 import { ordersRouter } from './v1/orders';
 import { billingRouter } from './v1/billing';
+import { promotionsRouter } from './v1/promotions';
 import {
   subscriptionAccessRouter,
   subscriptionRouter,
@@ -174,6 +175,7 @@ v1Router.get('/resources', requireAuthorization, async (c) => {
 
 v1Router.route('/orders', ordersRouter);
 v1Router.route('/billing', billingRouter);
+v1Router.route('/promotions', promotionsRouter);
 v1Router.route('/subscription', subscriptionRouter);
 v1Router.route('/access', subscriptionAccessRouter);
 

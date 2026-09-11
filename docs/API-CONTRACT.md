@@ -287,7 +287,7 @@ Success 使用与 Orders List 相同的单个 Order DTO：
 }
 ```
 
-payment callback、refund、coupon、subscription 路由均未实现。
+Payment Provider callback 和 refund 路由仍未实现。Promotion validation 与 subscription 使用各自独立 Public Contract；Order Create 本阶段不接受 `couponCode`。
 
 错误：
 
@@ -644,3 +644,114 @@ Gateway 不在 reset 后自动登录。验证码校验、尝试次数、用户�
 所有响应使用 `Cache-Control: no-store`。错误响应不会透传 V2Board/Laravel message；仅对官方源码确认的完整 exact message 做业务分类，不使用模糊 `includes` 匹配。
 
 Account Lifecycle 的 anti-bot Public Contract 使用 provider-neutral `challengeToken`。Google reCAPTCHA 只是当前官方 V2Board 的 upstream implementation detail，不属于 solution Public API；当前映射为 `challengeToken -> recaptcha_data`。未来可以替换或引入其他 anti-bot Provider，而不改变 Account Lifecycle Public Contract。本 Phase 不实现 Provider selection、challenge endpoint、验证服务或 Gateway anti-bot state。
+
+## Phase 2F Order Actions and Promotion Validation
+
+以下接口均要求 `Authorization: Bearer <opaque-token>`。Gateway 不保存订单或优惠券状态，也不复制 V2Board 的取消和优惠券业务规则。
+
+### Order Status
+
+```http
+GET /api/v1/orders/{id}/status
+```
+
+Adapter 调用 `GET user/order/check?trade_no=<id>`，将官方 numeric status 通过与 Order List/Detail 相同的映射转换为 Public `OrderStatus`：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "order-001",
+    "status": "pending"
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不根据订单字段或本地时间推断 paid、pending、cancelled 或 expired，只转换 V2Board 当前返回值。
+
+### Order Cancel
+
+```http
+POST /api/v1/orders/{id}/cancel
+```
+
+Public 请求不需要 body。Adapter 只向 `POST user/order/cancel` 发送：
+
+```json
+{ "trade_no": "order-001" }
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "cancelled": true },
+  "requestId": "request-id"
+}
+```
+
+订单归属、存在性、是否 pending、余额/优惠券副作用和实际取消全部由 V2Board 负责。Gateway 不先查询状态，也不自行决定是否允许取消。
+
+### Promotion Validation
+
+```http
+POST /api/v1/promotions/validate
+Content-Type: application/json
+```
+
+```json
+{
+  "code": "PROMO123",
+  "productId": 1
+}
+```
+
+`code` 是长度 1 至 255 的字符串；`productId` 是正整数。Adapter 映射为官方 V2Board `POST user/coupon/check` 的 `code` 与 `plan_id`。
+
+官方 `CouponService::getCoupon()` 返回完整 Coupon Model。Gateway 只解析折扣所需的 `type` 和 `value`，其他 id、code、name、使用次数、用户/套餐限制和时间字段全部丢弃。
+
+固定金额优惠：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "valid": true,
+    "discount": { "type": "fixed", "amountMinor": 500 }
+  },
+  "requestId": "request-id"
+}
+```
+
+百分比优惠：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "valid": true,
+    "discount": { "type": "percentage", "percent": 25 }
+  },
+  "requestId": "request-id"
+}
+```
+
+V2Board 负责 coupon 是否存在、启用状态、有效期、次数、套餐/周期/用户限制和折扣规则。Validation 不创建 Gateway coupon token，也不修改 Order Create；购买时是否提交 coupon code 属于后续独立 contract。
+
+### Phase 2F Errors
+
+| HTTP | Code | 场景 |
+| ---- | ---- | ---- |
+| 400 | `VALIDATION_ERROR` | order ID、promotion code 或 productId 无效 |
+| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 credential |
+| 404 | `ORDER_NOT_FOUND` | V2Board exact error 表明订单不存在 |
+| 409 | `ORDER_NOT_CANCELLABLE` | V2Board exact error 表明订单不是 pending |
+| 422 | `PROMOTION_INVALID` | V2Board exact error 表明 coupon 无效、不可用或不适用 |
+| 502 | `ORDER_CANCEL_FAILED` | V2Board exact error 表明取消执行失败 |
+| 502 | `UPSTREAM_ERROR` | malformed、HTML、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+所有响应使用 `Cache-Control: no-store`。业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用模糊字符串匹配，也不返回 raw V2Board/Laravel message。

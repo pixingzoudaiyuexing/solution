@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ORDER_ID_PATTERN } from '../../contract/v1/orders';
 import type {
   CreatedOrder,
+  CancelledOrder,
   CreateOrderRequest,
   Order,
   OrderBillingPeriod,
@@ -11,6 +12,8 @@ import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
   V2BoardOrderCreateError,
+  V2BoardOrderCancelError,
+  V2BoardOrderNotCancellableError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
   V2BoardUpstreamError,
@@ -42,6 +45,8 @@ const ordersResponseSchema = z
   .object({ data: z.array(orderSchema) })
   .strip();
 const orderResponseSchema = z.object({ data: orderSchema }).strip();
+const orderStatusResponseSchema = z.object({ data: orderStatusSchema }).strip();
+const cancelledOrderResponseSchema = z.object({ data: z.literal(true) }).strip();
 const createdOrderResponseSchema = z
   .object({ data: z.string().regex(ORDER_ID_PATTERN) })
   .strip();
@@ -76,15 +81,26 @@ const ORDER_NOT_FOUND_MESSAGES = new Set([
   '订单不存在',
   '订单不存在或已支付',
 ]);
+const ORDER_NOT_CANCELLABLE_MESSAGES = new Set([
+  'you can only cancel pending orders',
+  '只可以取消待支付订单',
+]);
+const ORDER_CANCEL_FAILED_MESSAGES = new Set(['cancel failed', '取消失败']);
 
 function toIsoTimestamp(value: number): string {
   return new Date(value * 1000).toISOString();
 }
 
+function toPublicOrderStatus(
+  status: z.infer<typeof orderStatusSchema>
+): OrderStatus {
+  return STATUS_MAP[status];
+}
+
 function toPublicOrder(order: z.infer<typeof orderSchema>): Order {
   return {
     id: order.trade_no,
-    status: STATUS_MAP[order.status],
+    status: toPublicOrderStatus(order.status),
     amountMinor: order.total_amount,
     createdAt: toIsoTimestamp(order.created_at),
     updatedAt:
@@ -187,5 +203,60 @@ export class V2BoardOrdersAdapter extends V2BoardAdapterBase {
     }
 
     return toPublicOrder(parsed.data.data);
+  }
+
+  async orderStatus(authToken: string, id: string): Promise<OrderStatus> {
+    const path = `user/order/check?trade_no=${encodeURIComponent(id)}`;
+    const { response, payload } = await this.requestJson(path, {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: authToken },
+    });
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = this.knownErrorMessage(payload);
+      if (message && ORDER_NOT_FOUND_MESSAGES.has(message)) {
+        throw new V2BoardOrderNotFoundError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+    const parsed = orderStatusResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardUpstreamError();
+    return toPublicOrderStatus(parsed.data.data);
+  }
+
+  async cancelOrder(authToken: string, id: string): Promise<CancelledOrder> {
+    const { response, payload } = await this.requestJson('user/order/cancel', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ trade_no: id }),
+    });
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = this.knownErrorMessage(payload);
+      if (message && ORDER_NOT_FOUND_MESSAGES.has(message)) {
+        throw new V2BoardOrderNotFoundError();
+      }
+      if (message && ORDER_NOT_CANCELLABLE_MESSAGES.has(message)) {
+        throw new V2BoardOrderNotCancellableError();
+      }
+      if (message && ORDER_CANCEL_FAILED_MESSAGES.has(message)) {
+        throw new V2BoardOrderCancelError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+    if (!cancelledOrderResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { cancelled: true };
+  }
+
+  private knownErrorMessage(payload: unknown): string | undefined {
+    const parsed = orderErrorSchema.safeParse(payload);
+    if (!parsed.success) return undefined;
+    return errorMessage(parsed.data)?.trim().toLowerCase();
   }
 }

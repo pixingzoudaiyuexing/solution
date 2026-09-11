@@ -75,6 +75,27 @@ export class V2BoardOrderNotFoundError extends Error {
   }
 }
 
+export class V2BoardOrderNotCancellableError extends Error {
+  constructor() {
+    super('V2Board order is not cancellable');
+    this.name = 'V2BoardOrderNotCancellableError';
+  }
+}
+
+export class V2BoardOrderCancelError extends Error {
+  constructor() {
+    super('V2Board order cancellation failed');
+    this.name = 'V2BoardOrderCancelError';
+  }
+}
+
+export class V2BoardPromotionInvalidError extends Error {
+  constructor() {
+    super('V2Board promotion rejected');
+    this.name = 'V2BoardPromotionInvalidError';
+  }
+}
+
 export class V2BoardOrderExpiredError extends Error {
   constructor() {
     super('V2Board order expired');

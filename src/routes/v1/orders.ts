@@ -6,9 +6,11 @@ import { V2BoardPaymentAdapter } from '../../adapters/v2board/payment';
 import {
   ORDER_BILLING_PERIODS,
   ORDER_ID_PATTERN,
+  type CancelOrderSuccessResponse,
   type CreateOrderSuccessResponse,
   type OrderSuccessResponse,
   type OrdersSuccessResponse,
+  type OrderStatusSuccessResponse,
 } from '../../contract/v1/orders';
 import { GatewayError } from '../../contract/error';
 import {
@@ -104,6 +106,42 @@ ordersRouter.get('/:id', requireAuthorization, async (c) => {
     requestId: requestId(c),
   };
 
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+ordersRouter.get('/:id/status', requireAuthorization, async (c) => {
+  const parsedId = orderIdSchema.safeParse(c.req.param('id'));
+  if (!parsedId.success) {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+  const status = await orderAdapter(c.env).orderStatus(
+    c.get('authToken'),
+    parsedId.data
+  );
+  const response: OrderStatusSuccessResponse = {
+    ok: true,
+    data: { id: parsedId.data, status },
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+ordersRouter.post('/:id/cancel', requireAuthorization, async (c) => {
+  const parsedId = orderIdSchema.safeParse(c.req.param('id'));
+  if (!parsedId.success) {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+  const data = await orderAdapter(c.env).cancelOrder(
+    c.get('authToken'),
+    parsedId.data
+  );
+  const response: CancelOrderSuccessResponse = {
+    ok: true,
+    data,
+    requestId: requestId(c),
+  };
   c.header('Cache-Control', 'no-store');
   return c.json(response);
 });

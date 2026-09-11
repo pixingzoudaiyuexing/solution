@@ -7,14 +7,17 @@ import {
 import {
   V2BoardAuthenticationError,
   V2BoardOrderCreateError,
+  V2BoardOrderCancelError,
   V2BoardOrderExpiredError,
   V2BoardOrderNotFoundError,
+  V2BoardOrderNotCancellableError,
   V2BoardOrderQueryError,
   V2BoardPasswordResetError,
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
   V2BoardRateLimitedError,
   V2BoardRegistrationUnavailableError,
+  V2BoardPromotionInvalidError,
   V2BoardTimeoutError,
   V2BoardValidationError,
   V2BoardVerificationError,
@@ -112,6 +115,31 @@ export const errorHandler: ErrorHandler = (err, c) => {
         id
       ),
       502
+    );
+  }
+
+  if (err instanceof V2BoardOrderNotCancellableError) {
+    return c.json(
+      publicErrorResponse(
+        'ORDER_NOT_CANCELLABLE',
+        'Order cannot be cancelled',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardOrderCancelError) {
+    return c.json(
+      publicErrorResponse('ORDER_CANCEL_FAILED', 'Unable to cancel order', id),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardPromotionInvalidError) {
+    return c.json(
+      publicErrorResponse('PROMOTION_INVALID', 'Promotion is not valid', id),
+      422
     );
   }
 

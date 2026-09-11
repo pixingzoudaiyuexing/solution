@@ -27,6 +27,15 @@ export interface CreatedOrder {
   id: string;
 }
 
+export interface OrderStatusData {
+  id: string;
+  status: OrderStatus;
+}
+
+export interface CancelledOrder {
+  cancelled: true;
+}
+
 export interface Order {
   id: string;
   status: OrderStatus;
@@ -51,5 +60,17 @@ export interface OrderSuccessResponse {
 export interface CreateOrderSuccessResponse {
   ok: true;
   data: CreatedOrder;
+  requestId: string;
+}
+
+export interface OrderStatusSuccessResponse {
+  ok: true;
+  data: OrderStatusData;
+  requestId: string;
+}
+
+export interface CancelOrderSuccessResponse {
+  ok: true;
+  data: CancelledOrder;
   requestId: string;
 }
