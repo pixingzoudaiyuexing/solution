@@ -2,6 +2,7 @@ export type PublicErrorCode =
   | 'AUTH_FAILED'
   | 'AUTH_REQUIRED'
   | 'ORDER_CREATE_FAILED'
+  | 'ORDER_EXPIRED'
   | 'ORDER_NOT_FOUND'
   | 'ORDER_QUERY_FAILED'
   | 'PAYMENT_CREATE_FAILED'

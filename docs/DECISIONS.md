@@ -19,5 +19,5 @@
 - Desktop QR 是 v1 首选支付体验，Client Application 通过 Order Detail 查询最终状态。
 - Payment Provider callback 直接进入 V2Board，solution 不提供 callback proxy 或 webhook。
 - Checkout 仅转发经过 `FRONTEND_ORIGINS` 精确校验的 HTTPS Origin，用于保留原生移动端 return 行为；不转发浏览器控制的 Host 和 Forwarded Host/Proto headers。
-- 支付过期遵循 V2Board 订单过期规则，Gateway 不创建独立 timer。若上游不能提供权威 expiry，则公开合同不得猜测 `expiresAt`。
+- 支付过期遵循 V2Board 订单过期规则，Gateway 不创建独立 timer。兼容上游现已提供权威 `expires_at`；Gateway 仅验证并映射 `expiresAt`，并规范化 V2Board checkout 的过期错误，不自行计算或执行过期判断。
 - Checkout v1 的 Public response types 仅为 `finished`、`qrcode` 和 `redirect`。

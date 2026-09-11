@@ -32,6 +32,7 @@ function upstreamOrder(status: number, suffix: string): Record<string, unknown> 
     total_amount: 1099,
     created_at: 1704067200,
     updated_at: suffix === 'adjusted' ? null : 1704153600,
+    expires_at: 1704074400,
     plan_id: 7,
     payment_id: 3,
     callback_no: 'private-callback',
@@ -72,6 +73,7 @@ describe('V2BoardOrdersAdapter', () => {
         amountMinor: 1099,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
+        expiresAt: '2024-01-01T02:00:00.000Z',
       },
       {
         id: 'order-processing',
@@ -79,6 +81,7 @@ describe('V2BoardOrdersAdapter', () => {
         amountMinor: 1099,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
+        expiresAt: '2024-01-01T02:00:00.000Z',
       },
       {
         id: 'order-cancelled',
@@ -86,6 +89,7 @@ describe('V2BoardOrdersAdapter', () => {
         amountMinor: 1099,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
+        expiresAt: '2024-01-01T02:00:00.000Z',
       },
       {
         id: 'order-completed',
@@ -93,6 +97,7 @@ describe('V2BoardOrdersAdapter', () => {
         amountMinor: 1099,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
+        expiresAt: '2024-01-01T02:00:00.000Z',
       },
       {
         id: 'order-adjusted',
@@ -100,6 +105,7 @@ describe('V2BoardOrdersAdapter', () => {
         amountMinor: 1099,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: null,
+        expiresAt: '2024-01-01T02:00:00.000Z',
       },
     ]);
 
@@ -178,6 +184,18 @@ describe('V2BoardOrdersAdapter', () => {
   it.each([
     ['fractional amount', { ...upstreamOrder(0, 'bad-amount'), total_amount: 10.99 }],
     ['unknown status', upstreamOrder(9, 'bad-status')],
+    [
+      'missing expiry',
+      (({ expires_at: _expiresAt, ...order }) => order)(
+        upstreamOrder(0, 'missing-expiry')
+      ),
+    ],
+    ['string expiry', { ...upstreamOrder(0, 'string-expiry'), expires_at: '1704074400' }],
+    ['negative expiry', { ...upstreamOrder(0, 'negative-expiry'), expires_at: -1 }],
+    [
+      'out-of-range expiry',
+      { ...upstreamOrder(0, 'large-expiry'), expires_at: 253402300800 },
+    ],
   ])('fails closed on %s', async (_case, order) => {
     const adapter = createAdapter(
       vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: [order] }))
@@ -260,6 +278,7 @@ describe('V2BoardOrdersAdapter', () => {
       amountMinor: 1099,
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-02T00:00:00.000Z',
+      expiresAt: '2024-01-01T02:00:00.000Z',
     });
 
     expect(fetcher.mock.calls[0][0]).toBe(

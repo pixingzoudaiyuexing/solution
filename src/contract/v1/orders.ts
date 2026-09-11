@@ -33,6 +33,7 @@ export interface Order {
   amountMinor: number;
   createdAt: string;
   updatedAt: string | null;
+  expiresAt: string;
 }
 
 export interface OrdersSuccessResponse {

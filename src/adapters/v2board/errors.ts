@@ -47,6 +47,13 @@ export class V2BoardOrderNotFoundError extends Error {
   }
 }
 
+export class V2BoardOrderExpiredError extends Error {
+  constructor() {
+    super('V2Board order expired');
+    this.name = 'V2BoardOrderExpiredError';
+  }
+}
+
 export class V2BoardPaymentMethodUnavailableError extends Error {
   constructor() {
     super('V2Board payment method unavailable');

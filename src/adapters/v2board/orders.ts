@@ -35,6 +35,7 @@ const orderSchema = z
     total_amount: z.number().int().nonnegative().max(2_147_483_647),
     created_at: timestampSchema,
     updated_at: timestampSchema.nullable(),
+    expires_at: timestampSchema,
   })
   .strip();
 const ordersResponseSchema = z
@@ -88,6 +89,7 @@ function toPublicOrder(order: z.infer<typeof orderSchema>): Order {
     createdAt: toIsoTimestamp(order.created_at),
     updatedAt:
       order.updated_at === null ? null : toIsoTimestamp(order.updated_at),
+    expiresAt: toIsoTimestamp(order.expires_at),
   };
 }
 

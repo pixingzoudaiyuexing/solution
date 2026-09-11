@@ -7,6 +7,7 @@ import {
 import {
   V2BoardAuthenticationError,
   V2BoardOrderCreateError,
+  V2BoardOrderExpiredError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
   V2BoardPaymentCreateError,
@@ -78,6 +79,13 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('ORDER_NOT_FOUND', 'Order not found', id),
       404
+    );
+  }
+
+  if (err instanceof V2BoardOrderExpiredError) {
+    return c.json(
+      publicErrorResponse('ORDER_EXPIRED', 'Order has expired', id),
+      409
     );
   }
 

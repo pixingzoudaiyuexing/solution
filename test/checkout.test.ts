@@ -305,6 +305,36 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     expect(body).not.toContain(message);
   });
 
+  it('maps the authoritative V2Board expiry error to ORDER_EXPIRED', async () => {
+    const { response } = await checkout(
+      { message: 'Order has expired', internal: 'must-not-leak' },
+      { status: 500 }
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: 'ORDER_EXPIRED',
+        message: 'Order has expired',
+        requestId: 'request-id',
+      },
+    });
+  });
+
+  it('does not broadly map unrelated expired messages', async () => {
+    const upstreamMessage = 'Provider session expired';
+    const { response } = await checkout(
+      { message: upstreamMessage },
+      { status: 500 }
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.text();
+    expect(body).toContain('PAYMENT_CREATE_FAILED');
+    expect(body).not.toContain(upstreamMessage);
+  });
+
   it('maps other JSON business errors to PAYMENT_CREATE_FAILED', async () => {
     const { response } = await checkout(
       { message: 'Provider merchant configuration failed' },

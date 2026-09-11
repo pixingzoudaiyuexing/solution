@@ -8,6 +8,7 @@ import { validatePaymentRedirectTarget } from '../../security/payment-target';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
+  V2BoardOrderExpiredError,
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
   V2BoardUpstreamError,
@@ -56,6 +57,7 @@ const UNAVAILABLE_MESSAGES = new Set([
   'payment method is not available',
   '支付方式不可用',
 ]);
+const EXPIRED_ORDER_MESSAGES = new Set(['order has expired']);
 
 function enabled(value: z.infer<typeof enabledSchema>): boolean {
   return value === undefined || value === true || value === 1;
@@ -136,6 +138,9 @@ export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
       const message = (parsedError.data.message ?? parsedError.data.error)
         ?.trim()
         .toLowerCase();
+      if (message && EXPIRED_ORDER_MESSAGES.has(message)) {
+        throw new V2BoardOrderExpiredError();
+      }
       if (message && UNAVAILABLE_MESSAGES.has(message)) {
         throw new V2BoardPaymentMethodUnavailableError();
       }
