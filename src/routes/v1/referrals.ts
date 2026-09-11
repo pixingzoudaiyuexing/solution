@@ -10,6 +10,8 @@ import type {
   CommissionTransferSuccessResponse,
   CreateReferralCodeSuccessResponse,
   ReferralOverviewSuccessResponse,
+  WithdrawalOptionsSuccessResponse,
+  WithdrawalRequestSuccessResponse,
 } from '../../contract/v1/referrals';
 import { requestId } from '../../http/request-id';
 import {
@@ -36,6 +38,12 @@ const paginationSchema = z
 const commissionTransferSchema = z
   .object({
     amountMinor: z.number().int().min(1).max(2_147_483_647),
+  })
+  .strict();
+const withdrawalRequestSchema = z
+  .object({
+    method: z.string().min(1).max(255),
+    account: z.string().min(1).max(1024),
   })
   .strict();
 
@@ -121,5 +129,34 @@ referralsRouter.post(
     return c.json(response);
   }
 );
+
+referralsRouter.get('/withdrawal-options', requireAuthorization, async (c) => {
+  const data = await adapter(c.env).withdrawalOptions(c.get('authToken'));
+  const response: WithdrawalOptionsSuccessResponse = {
+    ok: true,
+    data,
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+referralsRouter.post('/withdrawal-requests', requireAuthorization, async (c) => {
+  const parsed = withdrawalRequestSchema.safeParse(await requestBody(c));
+  if (!parsed.success) {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+  const data = await adapter(c.env).requestWithdrawal(
+    c.get('authToken'),
+    parsed.data
+  );
+  const response: WithdrawalRequestSuccessResponse = {
+    ok: true,
+    data,
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response, 201);
+});
 
 export { referralsRouter };

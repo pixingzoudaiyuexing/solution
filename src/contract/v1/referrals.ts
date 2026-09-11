@@ -28,6 +28,20 @@ export interface CommissionTransferred {
   transferred: true;
 }
 
+export interface WithdrawalOptions {
+  enabled: boolean;
+  methods: string[];
+}
+
+export interface WithdrawalRequest {
+  method: string;
+  account: string;
+}
+
+export interface WithdrawalRequested {
+  requested: true;
+}
+
 export interface CommissionHistoryItem {
   orderAmountMinor: number;
   commissionAmountMinor: number;
@@ -59,6 +73,18 @@ export interface CreateReferralCodeSuccessResponse {
 export interface CommissionTransferSuccessResponse {
   ok: true;
   data: CommissionTransferred;
+  requestId: string;
+}
+
+export interface WithdrawalOptionsSuccessResponse {
+  ok: true;
+  data: WithdrawalOptions;
+  requestId: string;
+}
+
+export interface WithdrawalRequestSuccessResponse {
+  ok: true;
+  data: WithdrawalRequested;
   requestId: string;
 }
 

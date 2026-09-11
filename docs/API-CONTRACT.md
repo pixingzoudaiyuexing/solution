@@ -39,6 +39,8 @@
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
 | `GET /api/v1/referrals/commissions`    | Yes            | `user/invite/details`           |
 | `POST /api/v1/referrals/commissions/transfer` | Yes     | `user/transfer`                 |
+| `GET /api/v1/referrals/withdrawal-options` | Yes        | `user/comm/config`              |
+| `POST /api/v1/referrals/withdrawal-requests` | Yes      | `user/ticket/withdraw`          |
 | `POST /api/v1/gift-cards/redeem`       | Yes            | `user/redeemgiftcard`           |
 
 ## Phase 2A 已实现契约
@@ -1075,7 +1077,7 @@ POST /api/v1/tickets/{id}/close
 | 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
-业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用 `includes` 等模糊匹配，不返回 raw V2Board/Laravel message。所有响应使用 `Cache-Control: no-store`。`user/ticket/withdraw` 是佣金提现接口，不属于 Support Tickets，未实现。
+业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用 `includes` 等模糊匹配，不返回 raw V2Board/Laravel message。所有响应使用 `Cache-Control: no-store`。`user/ticket/withdraw` 属于 Referrals / Commission 的人工提现申请，不是通用 Support Ticket 创建接口；其 Public Contract 见 Phase 2O。
 
 ## Phase 2J Notices And Traffic History
 
@@ -1325,11 +1327,11 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 | 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
-所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Phase 2K 本身不提供资金 mutation；Phase 2N 仅以 additive extension 增加 commission 转站内余额，commission withdrawal、自动打款与 `user/ticket/withdraw` 仍不提供。
+所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Phase 2K 本身不提供 mutation；后续 Phase 2N/2O 仅以 additive extension 增加 commission transfer 和人工 withdrawal request，自动打款仍不提供。
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2N 增加 Commission Transfer 后，本文件顶部矩阵包含 34 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2O 增加 Commission Withdrawal Request 后，本文件顶部矩阵包含 36 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1339,7 +1341,7 @@ v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/C
 - **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
-Gift Card 管理/创建/list/preview、Active Session、Quick Login、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin、`newPeriod` 和 `resetSecurity` 不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
 
 ## Phase 2M Gift Card Redemption
 
@@ -1446,4 +1448,90 @@ Gateway 不返回新余额或 V2Board 创建的 deposit Order。commission 余�
 
 Commission Transfer 是非幂等资金 mutation。Gateway 不自动 retry，也不实现 idempotency state。收到 `UPSTREAM_TIMEOUT` 表示 V2Board 可能已经提交，也可能尚未提交；Client 不得立即盲目重试，应先通过 `GET /api/v1/referrals` 刷新权威 `availableCommissionMinor` 及相关账户状态，再由用户决定下一步。Gateway 不根据后续 read 自动推断第一次 transfer 的结果。
 
-成功与错误响应均使用 `Cache-Control: no-store`。Public response 不包含 raw balance、commission model、deposit Order、V2Board error message 或内部字段；amount、Bearer token 和 raw upstream payload 不进入日志。Commission withdrawal、自动打款、withdrawal ticket、Gateway 资金计算和资金状态存储仍是 Non-goals。
+成功与错误响应均使用 `Cache-Control: no-store`。Public response 不包含 raw balance、commission model、deposit Order、V2Board error message 或内部字段；amount、Bearer token 和 raw upstream payload 不进入日志。Phase 2O 仅增加人工 withdrawal request；自动打款、Gateway 资金计算和资金状态存储仍是 Non-goals。
+
+## Phase 2O Commission Withdrawal Request
+
+Withdrawal 是由 V2Board 创建、交由管理员后续处理的申请工单，不是自动提现或 payout。所有响应使用 `Cache-Control: no-store`。
+
+### Withdrawal Options
+
+```http
+GET /api/v1/referrals/withdrawal-options
+Authorization: Bearer <opaque-token>
+```
+
+Adapter 调用 `GET user/comm/config`，只消费官方 `withdraw_close` 和 `withdraw_methods`：`withdraw_close=0` 映射为 `enabled=true`，`1` 映射为 `false`；methods 保持原顺序和原字符串，即使 disabled 也不清空。Stripe、Telegram、currency、commission distribution 和其他 raw Comm config 字段全部丢弃。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "enabled": true,
+    "methods": ["支付宝", "USDT", "Paypal"]
+  },
+  "requestId": "request-id"
+}
+```
+
+官方 user-facing `user/comm/config` 不公开 `commission_withdraw_limit`。solution 不调用 Admin API、不读取数据库、不增加 env 或硬编码副本，因此 Public Contract 有意不提供 `minimumAmountMinor`；minimum 资格由 V2Board 在提交时判断。
+
+### Create Withdrawal Request
+
+```http
+POST /api/v1/referrals/withdrawal-requests
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "method": "USDT",
+  "account": "recipient-account"
+}
+```
+
+`method` 长度为 1 至 255，`account` 长度为 1 至 1024；Gateway 不 trim、翻译、改变大小写或执行 Provider-specific account 验证。strict schema 拒绝额外字段、`withdraw_method/withdraw_account` upstream alias，以及 `amount`、`amountMinor`、`withdrawAmount` 或其他金额字段。
+
+Adapter 不读取 options、commission 或 minimum，直接发出且只发出一次：
+
+```http
+POST user/ticket/withdraw
+Content-Type: application/json
+
+{
+  "withdraw_method": "USDT",
+  "withdraw_account": "recipient-account"
+}
+```
+
+只有官方响应严格满足 `{ "data": true }` 才返回 HTTP 201：
+
+```json
+{
+  "ok": true,
+  "data": { "requested": true },
+  "requestId": "request-id"
+}
+```
+
+`requested=true` 只表示 V2Board 已创建提现申请 Ticket 和 TicketMessage，不表示管理员批准、payout 完成、资金发送、commission 已扣除或冻结。官方此调用不会改变 `commission_balance` 或站内 `balance`；Gateway 同样不计算、保留或修改任何资金状态。V2Board commit 后可能执行内部管理员 Telegram notification，这不是 solution Telegram Public 功能或依赖。
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Public request 不符合 strict schema |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
+| 409 | `WITHDRAWAL_DISABLED` | 官方 raw literal 表明 withdrawal 已关闭 |
+| 422 | `WITHDRAWAL_METHOD_UNSUPPORTED` | V2Board exact error 表明 method 不在当前配置中 |
+| 409 | `WITHDRAWAL_MINIMUM_NOT_MET` | 官方完整动态 minimum message 被严格识别 |
+| 502 | `WITHDRAWAL_REQUEST_FAILED` | V2Board exact error 表明 Ticket/Message 创建失败并 rollback |
+| 502 | `UPSTREAM_ERROR` | malformed success、HTML、invalid JSON 或未知 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时，Ticket mutation 结果未知 |
+
+Minimum error 只通过官方源码与 staging 验证的完整锚定结构识别：英文固定完整前缀后只能是 numeric limit；中文固定完整前后缀之间只能是 numeric limit。Gateway 不使用 `includes`、partial prefix 或宽泛 regex，也不在 Public error 中返回 minimum 或 raw upstream message。
+
+Withdrawal Request 是非幂等 mutation，每次成功请求都可能创建新工单。Gateway 不 retry、不搜索 Ticket、不 dedupe，也不实现 idempotency storage。`UPSTREAM_TIMEOUT` 或提交后的未知 `UPSTREAM_ERROR` 不能解释为“肯定未创建”；Client 不得盲目重提，应先调用 `GET /api/v1/tickets`，必要时再调用 `GET /api/v1/tickets/{id}` 检查是否已有新的 Withdrawal Request Ticket。Gateway 不自动推断第一次请求结果。
+
+Withdrawal account 是敏感财务信息：它不出现在 withdrawal success/error response、application log、request metadata 或 tracing custom field。现有 owner-authenticated Ticket Detail 仍可能按 V2Board 原始 TicketMessage 显示用户自己的 account；该读取行为不改变现有 Ticket DTO，Ticket message 同样不进入 application log。
+
+Automatic payout、payout provider integration、amount selection、commission reservation/deduction/freeze、admin withdrawal management、Gateway withdrawal state 和 duplicate detection 均不属于 solution Public Contract。

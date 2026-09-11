@@ -97,6 +97,32 @@ describe('V2BoardTicketsAdapter list', () => {
     expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
   });
 
+  it('maps an official withdrawal ticket without changing the Ticket contract', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              ...upstreamTicket(10, 2, 0),
+              subject: '[Commission Withdrawal Request] This ticket is opened by the system',
+            },
+          ],
+        })
+      )
+    );
+
+    await expect(adapter.tickets('opaque-token')).resolves.toEqual([
+      {
+        id: '10',
+        subject: '[Commission Withdrawal Request] This ticket is opened by the system',
+        priority: 'high',
+        status: 'open',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]);
+  });
+
   it.each([
     ['missing subject', { ...upstreamTicket(), subject: undefined }],
     ['invalid id', { ...upstreamTicket(), id: '7' }],
@@ -194,6 +220,46 @@ describe('V2BoardTicketsAdapter detail', () => {
     expect(fetcher.mock.calls[0][0]).toBe(
       'https://backend.example/api/v1/user/ticket/fetch?id=7'
     );
+  });
+
+  it('maps the owner-visible account message in an official withdrawal ticket', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: {
+            ...upstreamTicket(10, 2, 0),
+            subject: '[Commission Withdrawal Request] This ticket is opened by the system',
+            message: [
+              {
+                id: 21,
+                user_id: 99,
+                ticket_id: 10,
+                message: 'Withdrawal method：USDT\r\nWithdrawal account：OWNER_ACCOUNT',
+                is_me: true,
+                created_at: 1704067200,
+              },
+            ],
+          },
+        })
+      )
+    );
+
+    await expect(adapter.ticket('opaque-token', '10')).resolves.toEqual({
+      id: '10',
+      subject: '[Commission Withdrawal Request] This ticket is opened by the system',
+      priority: 'high',
+      status: 'open',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-02T00:00:00.000Z',
+      messages: [
+        {
+          id: '21',
+          content: 'Withdrawal method：USDT\r\nWithdrawal account：OWNER_ACCOUNT',
+          fromMe: true,
+          createdAt: '2024-01-01T00:00:00.000Z',
+        },
+      ],
+    });
   });
 
   it.each([

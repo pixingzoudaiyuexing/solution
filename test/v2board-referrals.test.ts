@@ -7,6 +7,10 @@ import {
   V2BoardReferralCodeLimitError,
   V2BoardTimeoutError,
   V2BoardUpstreamError,
+  V2BoardWithdrawalDisabledError,
+  V2BoardWithdrawalMethodUnsupportedError,
+  V2BoardWithdrawalMinimumNotMetError,
+  V2BoardWithdrawalRequestError,
 } from '../src/adapters/v2board/errors';
 import { V2BoardReferralsAdapter } from '../src/adapters/v2board/referrals';
 
@@ -478,6 +482,213 @@ describe('V2BoardReferralsAdapter commission transfer', () => {
     await expect(
       timeout.transferCommission('opaque-token', 1)
     ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
+  });
+});
+
+describe('V2BoardReferralsAdapter withdrawal options', () => {
+  it.each([
+    [0, true],
+    [1, false],
+  ] as const)('maps withdraw_close=%s and strips unrelated config', async (withdrawClose, enabled) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: {
+          withdraw_close: withdrawClose,
+          withdraw_methods: ['支付宝', 'USDT', 'Paypal'],
+          stripe_pk: 'must-not-leak',
+          is_telegram: 1,
+          commission_distribution_enable: 1,
+        },
+      })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(adapter.withdrawalOptions('opaque-token')).resolves.toEqual({
+      enabled,
+      methods: ['支付宝', 'USDT', 'Paypal'],
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://backend.example/api/v1/user/comm/config');
+    expect(init?.method).toBe('GET');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+  });
+
+  it('keeps an empty method list when withdrawal is disabled', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: { withdraw_close: 1, withdraw_methods: [] } })
+      )
+    );
+
+    await expect(adapter.withdrawalOptions('opaque-token')).resolves.toEqual({
+      enabled: false,
+      methods: [],
+    });
+  });
+
+  it.each([
+    ['boolean close', { withdraw_close: false, withdraw_methods: [] }],
+    ['string close', { withdraw_close: '0', withdraw_methods: [] }],
+    ['unknown close', { withdraw_close: 2, withdraw_methods: [] }],
+    ['missing methods', { withdraw_close: 0 }],
+    ['non-array methods', { withdraw_close: 0, withdraw_methods: 'USDT' }],
+    ['empty method', { withdraw_close: 0, withdraw_methods: [''] }],
+    ['oversized method', { withdraw_close: 0, withdraw_methods: ['x'.repeat(256)] }],
+  ])('fails closed on malformed options: %s', async (_case, data) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data }))
+    );
+
+    await expect(adapter.withdrawalOptions('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it('normalizes authentication failure and timeout', async () => {
+    const auth = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    const timeout = createAdapter(
+      vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new DOMException('timed out', 'TimeoutError'))
+    );
+
+    await expect(auth.withdrawalOptions('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardAuthenticationError
+    );
+    await expect(timeout.withdrawalOptions('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardTimeoutError
+    );
+  });
+});
+
+describe('V2BoardReferralsAdapter withdrawal request', () => {
+  const request = {
+    method: 'USDT',
+    account: 'SUPER_SECRET_WITHDRAWAL_ACCOUNT_123',
+  };
+
+  it('submits only official fields once and accepts data=true without a follow-up read', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: true, ticket_id: 7, account: request.account })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(
+      adapter.requestWithdrawal('opaque-token', request)
+    ).resolves.toEqual({ requested: true });
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://backend.example/api/v1/user/ticket/withdraw');
+    expect(init?.method).toBe('POST');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+    expect(new Headers(init?.headers).get('content-type')).toBe('application/json');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      withdraw_method: 'USDT',
+      withdraw_account: request.account,
+    });
+  });
+
+  it.each([
+    ['user.ticket.withdraw.not_support_withdraw', V2BoardWithdrawalDisabledError],
+    ['Unsupported withdrawal method', V2BoardWithdrawalMethodUnsupportedError],
+    ['不支持的提现方式', V2BoardWithdrawalMethodUnsupportedError],
+    [
+      'The current required minimum withdrawal commission is 100',
+      V2BoardWithdrawalMinimumNotMetError,
+    ],
+    ['当前系统要求的最少提现佣金为：¥100CNY', V2BoardWithdrawalMinimumNotMetError],
+    ['Failed to open ticket', V2BoardWithdrawalRequestError],
+    ['工单创建失败', V2BoardWithdrawalRequestError],
+  ])('maps confirmed complete error %s', async (message, ErrorType) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(ErrorType);
+  });
+
+  it.each([
+    'The current required minimum withdrawal commission is 100 CNY',
+    'The current required minimum withdrawal commission is unknown',
+    'prefix The current required minimum withdrawal commission is 100',
+    '当前系统要求的最少提现佣金为：¥100CNY extra',
+    'minimum withdrawal is 100',
+  ])('does not classify non-official minimum message: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it.each([{ data: false }, { data: null }, {}, { data: 'true' }, []])(
+    'fails closed on malformed success %#',
+    async (payload) => {
+      const adapter = createAdapter(
+        vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+      );
+      await expect(
+        adapter.requestWithdrawal('opaque-token', request)
+      ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    }
+  );
+
+  it('normalizes HTML, invalid JSON, auth, unknown failure, and timeout without retry', async () => {
+    const html = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(`<h1>${request.account}</h1>`, { status: 500 })
+      )
+    );
+    const invalidJson = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('{invalid', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+    const auth = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    const unknownFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ message: `SQL failure ${request.account}` }, 500)
+    );
+    const unknown = createAdapter(unknownFetcher);
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    const timeout = createAdapter(timeoutFetcher);
+
+    await expect(
+      html.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    await expect(
+      invalidJson.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    await expect(
+      auth.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardAuthenticationError);
+    await expect(
+      unknown.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+    await expect(
+      timeout.requestWithdrawal('opaque-token', request)
+    ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+    expect(unknownFetcher).toHaveBeenCalledOnce();
     expect(timeoutFetcher).toHaveBeenCalledOnce();
   });
 });

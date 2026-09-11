@@ -39,6 +39,10 @@ import {
   V2BoardTimeoutError,
   V2BoardValidationError,
   V2BoardVerificationError,
+  V2BoardWithdrawalDisabledError,
+  V2BoardWithdrawalMethodUnsupportedError,
+  V2BoardWithdrawalMinimumNotMetError,
+  V2BoardWithdrawalRequestError,
 } from '../adapters/v2board/errors';
 import { requestId } from './request-id';
 
@@ -76,6 +80,50 @@ export const errorHandler: ErrorHandler = (err, c) => {
       publicErrorResponse(
         'COMMISSION_TRANSFER_FAILED',
         'Unable to transfer commission',
+        id
+      ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardWithdrawalDisabledError) {
+    return c.json(
+      publicErrorResponse(
+        'WITHDRAWAL_DISABLED',
+        'Withdrawal requests are unavailable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardWithdrawalMethodUnsupportedError) {
+    return c.json(
+      publicErrorResponse(
+        'WITHDRAWAL_METHOD_UNSUPPORTED',
+        'Selected withdrawal method is unavailable',
+        id
+      ),
+      422
+    );
+  }
+
+  if (err instanceof V2BoardWithdrawalMinimumNotMetError) {
+    return c.json(
+      publicErrorResponse(
+        'WITHDRAWAL_MINIMUM_NOT_MET',
+        'Withdrawal minimum has not been met',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardWithdrawalRequestError) {
+    return c.json(
+      publicErrorResponse(
+        'WITHDRAWAL_REQUEST_FAILED',
+        'Unable to create withdrawal request',
         id
       ),
       502

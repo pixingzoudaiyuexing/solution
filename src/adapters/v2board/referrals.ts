@@ -5,6 +5,9 @@ import type {
   CommissionTransferred,
   CreatedReferralCode,
   ReferralOverview,
+  WithdrawalOptions,
+  WithdrawalRequest,
+  WithdrawalRequested,
 } from '../../contract/v1/referrals';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
@@ -13,6 +16,10 @@ import {
   V2BoardInsufficientCommissionBalanceError,
   V2BoardReferralCodeLimitError,
   V2BoardUpstreamError,
+  V2BoardWithdrawalDisabledError,
+  V2BoardWithdrawalMethodUnsupportedError,
+  V2BoardWithdrawalMinimumNotMetError,
+  V2BoardWithdrawalRequestError,
 } from './errors';
 
 const safeIntegerSchema = z
@@ -58,6 +65,16 @@ const commissionHistoryResponseSchema = z
     total: safeIntegerSchema,
   })
   .strip();
+const withdrawalOptionsResponseSchema = z
+  .object({
+    data: z
+      .object({
+        withdraw_close: z.union([z.literal(0), z.literal(1)]),
+        withdraw_methods: z.array(z.string().min(1).max(255)),
+      })
+      .strip(),
+  })
+  .strip();
 const errorResponseSchema = z
   .object({ message: z.string().optional(), error: z.string().optional() })
   .strip();
@@ -76,6 +93,21 @@ const COMMISSION_TRANSFER_FAILED_MESSAGES = new Set([
   'the user does not exist',
   '该用户不存在',
 ]);
+const WITHDRAWAL_DISABLED_MESSAGES = new Set([
+  'user.ticket.withdraw.not_support_withdraw',
+]);
+const WITHDRAWAL_METHOD_UNSUPPORTED_MESSAGES = new Set([
+  'unsupported withdrawal method',
+  '不支持的提现方式',
+]);
+const WITHDRAWAL_REQUEST_FAILED_MESSAGES = new Set([
+  'failed to open ticket',
+  '工单创建失败',
+]);
+const WITHDRAWAL_MINIMUM_MESSAGES = [
+  /^the current required minimum withdrawal commission is (?:0|[1-9]\d*)(?:\.\d+)?$/,
+  /^当前系统要求的最少提现佣金为：¥(?:0|[1-9]\d*)(?:\.\d+)?cny$/,
+];
 
 function toIsoTimestamp(value: number): string {
   return new Date(value * 1000).toISOString();
@@ -201,5 +233,62 @@ export class V2BoardReferralsAdapter extends V2BoardAdapterBase {
       throw new V2BoardUpstreamError();
     }
     return { transferred: true };
+  }
+
+  async withdrawalOptions(authToken: string): Promise<WithdrawalOptions> {
+    const { response, payload } = await this.requestJson('user/comm/config', {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: authToken },
+    });
+    this.assertAuthorizedResponse(response);
+
+    const parsed = withdrawalOptionsResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardUpstreamError();
+    return {
+      enabled: parsed.data.data.withdraw_close === 0,
+      methods: parsed.data.data.withdraw_methods,
+    };
+  }
+
+  async requestWithdrawal(
+    authToken: string,
+    request: WithdrawalRequest
+  ): Promise<WithdrawalRequested> {
+    const { response, payload } = await this.requestJson('user/ticket/withdraw', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: authToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        withdraw_method: request.method,
+        withdraw_account: request.account,
+      }),
+    });
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = errorMessage(payload);
+      if (message && WITHDRAWAL_DISABLED_MESSAGES.has(message)) {
+        throw new V2BoardWithdrawalDisabledError();
+      }
+      if (message && WITHDRAWAL_METHOD_UNSUPPORTED_MESSAGES.has(message)) {
+        throw new V2BoardWithdrawalMethodUnsupportedError();
+      }
+      if (
+        message &&
+        WITHDRAWAL_MINIMUM_MESSAGES.some((pattern) => pattern.test(message))
+      ) {
+        throw new V2BoardWithdrawalMinimumNotMetError();
+      }
+      if (message && WITHDRAWAL_REQUEST_FAILED_MESSAGES.has(message)) {
+        throw new V2BoardWithdrawalRequestError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+    if (!trueResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { requested: true };
   }
 }

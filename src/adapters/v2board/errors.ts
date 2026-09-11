@@ -249,3 +249,31 @@ export class V2BoardCommissionTransferError extends Error {
     this.name = 'V2BoardCommissionTransferError';
   }
 }
+
+export class V2BoardWithdrawalDisabledError extends Error {
+  constructor() {
+    super('V2Board withdrawal requests are disabled');
+    this.name = 'V2BoardWithdrawalDisabledError';
+  }
+}
+
+export class V2BoardWithdrawalMethodUnsupportedError extends Error {
+  constructor() {
+    super('V2Board withdrawal method is unsupported');
+    this.name = 'V2BoardWithdrawalMethodUnsupportedError';
+  }
+}
+
+export class V2BoardWithdrawalMinimumNotMetError extends Error {
+  constructor() {
+    super('V2Board withdrawal minimum is not met');
+    this.name = 'V2BoardWithdrawalMinimumNotMetError';
+  }
+}
+
+export class V2BoardWithdrawalRequestError extends Error {
+  constructor() {
+    super('V2Board withdrawal request failed');
+    this.name = 'V2BoardWithdrawalRequestError';
+  }
+}

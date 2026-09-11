@@ -532,3 +532,281 @@ describe('POST /api/v1/referrals/commissions/transfer', () => {
     expect(logged).not.toContain('backend.example');
   });
 });
+
+describe('GET /api/v1/referrals/withdrawal-options', () => {
+  it('returns only mapped options in upstream order with no-store', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: {
+          withdraw_close: 0,
+          withdraw_methods: ['支付宝', 'USDT', 'Paypal'],
+          stripe_pk: 'must-not-leak',
+          telegram: { token: 'must-not-leak' },
+          commission_distribution: { enabled: true },
+        },
+      })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      { headers: authorization() },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: { enabled: true, methods: ['支付宝', 'USDT', 'Paypal'] },
+      requestId: 'request-id',
+    });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('returns disabled with an empty methods array unchanged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: { withdraw_close: 1, withdraw_methods: [] } })
+      )
+    );
+
+    const response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      { headers: authorization() },
+      env
+    );
+    expect(await response.json()).toMatchObject({
+      data: { enabled: false, methods: [] },
+    });
+  });
+
+  it('requires authentication before upstream', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      undefined,
+      env
+    );
+    expect(response.status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('normalizes malformed options, auth failure, and timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: { withdraw_close: '0', withdraw_methods: [] } })
+      )
+    );
+    let response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      { headers: authorization() },
+      env
+    );
+    expect(response.status).toBe(502);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      { headers: authorization() },
+      env
+    );
+    expect(response.status).toBe(401);
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new DOMException('timed out', 'TimeoutError'))
+    );
+    response = await app.request(
+      '/api/v1/referrals/withdrawal-options',
+      { headers: authorization() },
+      env
+    );
+    expect(response.status).toBe(504);
+  });
+});
+
+describe('POST /api/v1/referrals/withdrawal-requests', () => {
+  const sensitiveAccount = 'SUPER_SECRET_WITHDRAWAL_ACCOUNT_123';
+
+  async function requestWithdrawal(
+    body: unknown,
+    authenticated = true
+  ): Promise<Response> {
+    return app.request(
+      '/api/v1/referrals/withdrawal-requests',
+      {
+        method: 'POST',
+        headers: {
+          ...(authenticated ? { Authorization: 'Bearer opaque-token' } : {}),
+          'Content-Type': 'application/json',
+          'cf-ray': 'request-id',
+        },
+        body: JSON.stringify(body),
+      },
+      env
+    );
+  }
+
+  it('creates one request and returns only requested=true', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: true, ticket_id: 7, account: sensitiveAccount })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await requestWithdrawal({
+      method: 'USDT',
+      account: sensitiveAccount,
+    });
+    const text = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(JSON.parse(text)).toEqual({
+      ok: true,
+      data: { requested: true },
+      requestId: 'request-id',
+    });
+    expect(text).not.toContain(sensitiveAccount);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://backend.example/api/v1/user/ticket/withdraw'
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      withdraw_method: 'USDT',
+      withdraw_account: sensitiveAccount,
+    });
+  });
+
+  it.each([
+    ['missing method', { account: sensitiveAccount }],
+    ['empty method', { method: '', account: sensitiveAccount }],
+    ['oversized method', { method: 'm'.repeat(256), account: sensitiveAccount }],
+    ['missing account', { method: 'USDT' }],
+    ['empty account', { method: 'USDT', account: '' }],
+    ['oversized account', { method: 'USDT', account: 'a'.repeat(1025) }],
+    ['unknown field', { method: 'USDT', account: sensitiveAccount, extra: true }],
+    [
+      'upstream aliases',
+      { withdraw_method: 'USDT', withdraw_account: sensitiveAccount },
+    ],
+    ['amount', { method: 'USDT', account: sensitiveAccount, amount: 1 }],
+    ['amountMinor', { method: 'USDT', account: sensitiveAccount, amountMinor: 1 }],
+  ])('rejects %s before upstream', async (_case, body) => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await requestWithdrawal(body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('requires authentication before reading the body', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await app.request(
+      '/api/v1/referrals/withdrawal-requests',
+      { method: 'POST', body: '{invalid' },
+      env
+    );
+    expect(response.status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['user.ticket.withdraw.not_support_withdraw', 409, 'WITHDRAWAL_DISABLED'],
+    ['Unsupported withdrawal method', 422, 'WITHDRAWAL_METHOD_UNSUPPORTED'],
+    ['不支持的提现方式', 422, 'WITHDRAWAL_METHOD_UNSUPPORTED'],
+    [
+      'The current required minimum withdrawal commission is 100',
+      409,
+      'WITHDRAWAL_MINIMUM_NOT_MET',
+    ],
+    ['当前系统要求的最少提现佣金为：¥100CNY', 409, 'WITHDRAWAL_MINIMUM_NOT_MET'],
+    ['Failed to open ticket', 502, 'WITHDRAWAL_REQUEST_FAILED'],
+    ['工单创建失败', 502, 'WITHDRAWAL_REQUEST_FAILED'],
+  ] as const)('normalizes %s without leaking it', async (message, status, code) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message, account: sensitiveAccount }, 500)
+      )
+    );
+    const response = await requestWithdrawal({
+      method: 'USDT',
+      account: sensitiveAccount,
+    });
+    const text = await response.text();
+    expect(response.status).toBe(status);
+    expect(text).toContain(code);
+    expect(text).not.toContain(message);
+    expect(text).not.toContain(sensitiveAccount);
+  });
+
+  it.each([{ data: false }, { data: null }, {}, { data: 'true' }, []])(
+    'fails closed on malformed success %#',
+    async (payload) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload))
+      );
+      const response = await requestWithdrawal({
+        method: 'USDT',
+        account: sensitiveAccount,
+      });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({
+        error: { code: 'UPSTREAM_ERROR' },
+      });
+    }
+  );
+
+  it('normalizes unknown failure and timeout without retry or sensitive logs', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const unknownFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ message: `SQL failure ${sensitiveAccount}` }, 500)
+    );
+    vi.stubGlobal('fetch', unknownFetcher);
+    let response = await requestWithdrawal({
+      method: 'USDT',
+      account: sensitiveAccount,
+    });
+    let text = await response.text();
+    expect(response.status).toBe(502);
+    expect(text).toContain('UPSTREAM_ERROR');
+    expect(text).not.toContain(sensitiveAccount);
+    expect(unknownFetcher).toHaveBeenCalledOnce();
+
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    vi.stubGlobal('fetch', timeoutFetcher);
+    response = await requestWithdrawal({
+      method: 'USDT',
+      account: sensitiveAccount,
+    });
+    text = await response.text();
+    expect(response.status).toBe(504);
+    expect(text).toContain('UPSTREAM_TIMEOUT');
+    expect(text).not.toContain(sensitiveAccount);
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
+
+    const logged = JSON.stringify(error.mock.calls);
+    expect(logged).not.toContain(sensitiveAccount);
+    expect(logged).not.toContain('opaque-token');
+    expect(logged).not.toContain('SQL failure');
+    expect(logged).not.toContain('backend.example');
+  });
+});
