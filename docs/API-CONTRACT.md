@@ -33,6 +33,9 @@
 | `POST /api/v1/tickets`                 | Yes            | `user/ticket/save`              |
 | `POST /api/v1/tickets/{id}/reply`      | Yes            | `user/ticket/reply`             |
 | `POST /api/v1/tickets/{id}/close`      | Yes            | `user/ticket/close`             |
+| `GET /api/v1/notices`                  | Yes            | `user/notice/fetch`             |
+| `GET /api/v1/notices/{id}`             | Yes            | `user/notice/fetch?id={id}`     |
+| `GET /api/v1/traffic/logs`             | Yes            | `user/stat/getTrafficLog`       |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
 ## Phase 2A 已实现契约
@@ -1070,3 +1073,121 @@ POST /api/v1/tickets/{id}/close
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用 `includes` 等模糊匹配，不返回 raw V2Board/Laravel message。所有响应使用 `Cache-Control: no-store`。`user/ticket/withdraw` 是佣金提现接口，不属于 Support Tickets，未实现。
+
+## Phase 2J Notices And Traffic History
+
+以下接口均要求 `Authorization: Bearer <opaque-token>`，继续使用统一 `V2BoardClient`、10 秒 timeout、`redirect: manual`、header allowlist 和 `Cache-Control: no-store`。Gateway 不保存公告、不缓存流量记录，也不复制 V2Board 的可见性、排序、留存或计费规则。
+
+### Notice List
+
+```http
+GET /api/v1/notices?page=1&pageSize=20
+```
+
+`page` 默认为 1，必须是最大 `2147483647` 的正整数；`pageSize` 默认为 20，范围为 1 至 100。额外或重复 query 参数会返回 `VALIDATION_ERROR`。Adapter 映射为：
+
+```http
+GET user/notice/fetch?current=1&pageSize=20
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "7",
+        "title": "Maintenance notice",
+        "tags": ["maintenance"],
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-02T00:00:00.000Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "total": 1
+  },
+  "requestId": "request-id"
+}
+```
+
+List 不返回正文。官方 Notice Model 的 `content`、`show`、`img_url` 和其他内部字段不会进入 list DTO。官方 `tags` 是 nullable array；Public Contract 稳定返回 bounded `string[]`，上游 `null` 表示没有标签并规范化为 `[]`。
+
+### Notice Detail
+
+```http
+GET /api/v1/notices/{id}
+```
+
+Notice ID 是最大 `2147483647` 的十进制正整数字符串。Adapter 调用 `GET user/notice/fetch?id={id}`。Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "7",
+    "title": "Maintenance notice",
+    "content": "<p>Scheduled maintenance</p>",
+    "tags": ["maintenance"],
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-02T00:00:00.000Z"
+  },
+  "requestId": "request-id"
+}
+```
+
+官方前端允许 Notice `content` 包含 HTML。Gateway 只把经过 string 类型和长度验证的正文作为 opaque string 返回，不渲染、不执行、不改写、不转换 Markdown；Consumer renderer 负责安全展示。即使正文包含 HTML，也不会透传整个 Notice Model。
+
+Notice detail 的官方 HTTP 404 映射为 `404 NOTICE_NOT_FOUND`，公开 message 与上游原文解耦。malformed item、total、tags、正文或 timestamp 统一 fail closed 为 `UPSTREAM_ERROR`。
+
+### Traffic History
+
+```http
+GET /api/v1/traffic/logs
+```
+
+Adapter 只调用：
+
+```http
+GET user/stat/getTrafficLog
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "entries": [
+      {
+        "uploadedBytes": 123456,
+        "downloadedBytes": 654321,
+        "recordedAt": "2026-09-11T00:00:00.000Z",
+        "rateMultiplier": 1.5
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+官方 `server_rate` 是节点流量扣费倍率。数据库类型为 `decimal(10,2)`，官方模型没有 numeric cast，实际 JSON 响应为两位小数字符串，例如 `"1.50"`；Adapter 严格验证该格式后映射为 Public `rateMultiplier: 1.5`。数字、宽松数字字符串或负数不会被隐式转换。
+
+`u`/`d` 必须是非负 JavaScript safe integers，分别映射为 `uploadedBytes`/`downloadedBytes`；`record_at` 转为 ISO 8601。Gateway 保持 V2Board 返回顺序，不返回 `user_id`，不计算 `totalBytes`、`ratedBytes`、remaining、percent 或 cost。
+
+Traffic History 当前只反映官方 V2Board 固定查询的本月 1 日至当前时间记录，不是任意日期范围的历史查询 API。Gateway 不增加 V2Board 不支持的日期过滤器或分页。
+
+### Phase 2J Errors
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Notice ID、page、pageSize、重复或额外 query 参数无效 |
+| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 credential |
+| 404 | `NOTICE_NOT_FOUND` | V2Board 返回官方 Notice detail 404 |
+| 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+Public Notice DTO 不包含 raw Model、`show` 或内部 flags；Public Traffic DTO 不包含 `user_id` 或内部数据库对象。Gateway 不增加 Notice cache、Traffic aggregation state、KV、D1、Durable Objects 或 Redis。

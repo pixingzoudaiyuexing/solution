@@ -6,6 +6,7 @@ import {
 } from '../contract/error';
 import {
   V2BoardAuthenticationError,
+  V2BoardNoticeNotFoundError,
   V2BoardOrderCreateError,
   V2BoardOrderCancelError,
   V2BoardOrderExpiredError,
@@ -46,6 +47,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('AUTH_FAILED', 'Authentication failed', id),
       401
+    );
+  }
+
+  if (err instanceof V2BoardNoticeNotFoundError) {
+    return c.json(
+      publicErrorResponse(
+        'NOTICE_NOT_FOUND',
+        'Requested notice unavailable',
+        id
+      ),
+      404
     );
   }
 

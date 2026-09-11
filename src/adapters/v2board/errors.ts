@@ -172,3 +172,10 @@ export class V2BoardTicketCloseError extends Error {
     this.name = 'V2BoardTicketCloseError';
   }
 }
+
+export class V2BoardNoticeNotFoundError extends Error {
+  constructor() {
+    super('V2Board notice not found');
+    this.name = 'V2BoardNoticeNotFoundError';
+  }
+}
