@@ -27,6 +27,22 @@ afterEach(() => {
 });
 
 describe('V2BoardClient', () => {
+  it('invokes the runtime fetch function without binding the client instance', async () => {
+    const fetcher = vi.fn(function (this: unknown) {
+      if (this !== undefined) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve(new Response('{"data":true}'));
+    }) as unknown as typeof fetch;
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/api/v1/' },
+      fetcher
+    );
+
+    await expect(client.fetch('user/info')).resolves.toBeInstanceOf(Response);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it('forces manual redirects and forwards only explicitly allowed headers', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'));
     const client = new V2BoardClient(

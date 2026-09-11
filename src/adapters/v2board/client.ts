@@ -98,8 +98,9 @@ export class V2BoardClient {
 
     let response: Response;
     try {
+      const fetcher = this.fetcher;
       response = await Promise.race([
-        this.fetcher(url.toString(), {
+        fetcher(url.toString(), {
           ...fetchInit,
           headers,
           redirect: 'manual',
