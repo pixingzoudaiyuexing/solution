@@ -52,9 +52,10 @@ describe('POST /api/v1/auth/email-code', () => {
   it.each([
     ['invalid purpose', { email: 'user@example.com', purpose: 'login' }],
     ['invalid email', { email: 'invalid', purpose: 'register' }],
-    ['invalid recaptcha type', { email: 'user@example.com', purpose: 'register', recaptchaData: 1 }],
-    ['empty recaptcha', { email: 'user@example.com', purpose: 'register', recaptchaData: '' }],
-    ['oversized recaptcha', { email: 'user@example.com', purpose: 'register', recaptchaData: 'x'.repeat(4097) }],
+    ['invalid challenge token type', { email: 'user@example.com', purpose: 'register', challengeToken: 1 }],
+    ['empty challenge token', { email: 'user@example.com', purpose: 'register', challengeToken: '' }],
+    ['oversized challenge token', { email: 'user@example.com', purpose: 'register', challengeToken: 'x'.repeat(4097) }],
+    ['provider-specific legacy field', { email: 'user@example.com', purpose: 'register', recaptchaData: 'legacy-value' }],
   ])('rejects %s before upstream', async (_case, body) => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
@@ -109,7 +110,8 @@ describe('POST /api/v1/auth/register', () => {
     ['long password', { email: 'user@example.com', password: 'x'.repeat(65) }],
     ['bad email code', { email: 'user@example.com', password: 'password123', emailCode: '12345' }],
     ['long invite', { email: 'user@example.com', password: 'password123', inviteCode: 'x'.repeat(256) }],
-    ['bad recaptcha', { email: 'user@example.com', password: 'password123', recaptchaData: 1 }],
+    ['bad challenge token', { email: 'user@example.com', password: 'password123', challengeToken: 1 }],
+    ['provider-specific legacy field', { email: 'user@example.com', password: 'password123', recaptchaData: 'legacy-value' }],
   ])('rejects %s before upstream', async (_case, body) => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);

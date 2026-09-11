@@ -98,7 +98,7 @@ describe('authentication security regressions', () => {
       password: 'sensitive-register-password',
       newPassword: 'sensitive-reset-password',
       emailCode: '654321',
-      recaptchaData: 'sensitive-recaptcha-data',
+      challengeToken: 'sensitive-challenge-token',
       inviteCode: 'sensitive-invite-code',
     };
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -119,7 +119,7 @@ describe('authentication security regressions', () => {
         body: JSON.stringify({
           email: 'user@example.com',
           purpose: 'register',
-          recaptchaData: sensitive.recaptchaData,
+          challengeToken: sensitive.challengeToken,
         }),
       },
       env
@@ -134,7 +134,7 @@ describe('authentication security regressions', () => {
           password: sensitive.password,
           emailCode: sensitive.emailCode,
           inviteCode: sensitive.inviteCode,
-          recaptchaData: sensitive.recaptchaData,
+          challengeToken: sensitive.challengeToken,
         }),
       },
       env

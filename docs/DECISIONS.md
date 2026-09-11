@@ -12,6 +12,7 @@
 | D-008 | APPROVED | Worker Rate Limiting 只用于 abuse protection，业务状态继续由 V2Board 负责。 |
 | D-009 | APPROVED | 所有 V2Board Adapter fetch requests MUST use `redirect: "manual"`。对 3xx responses 由 Adapter 显式处理，严禁盲目跟随或透传。 |
 | D-010 | APPROVED | Payment v1 由 V2Board 持有支付和订单状态；Gateway 只做 Contract 转换、安全过滤和 DTO 映射。 |
+| D-011 | APPROVED | Account Lifecycle 使用 provider-neutral `challengeToken`；Google reCAPTCHA 仅为当前 V2Board implementation detail，Adapter 映射到 `recaptcha_data`，Gateway 不持有 anti-bot state。 |
 
 ## D-005 Subscription access 实施约束
 

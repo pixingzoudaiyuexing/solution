@@ -19,7 +19,7 @@ export type EmailCodePurpose = 'register' | 'password-reset';
 export interface EmailCodeRequest {
   email: string;
   purpose: EmailCodePurpose;
-  recaptchaData?: string;
+  challengeToken?: string;
 }
 
 export interface EmailCodeResponseData {
@@ -37,7 +37,7 @@ export interface RegisterRequest {
   password: string;
   emailCode?: string;
   inviteCode?: string;
-  recaptchaData?: string;
+  challengeToken?: string;
 }
 
 export type RegisterSuccessResponse = LoginSuccessResponse;

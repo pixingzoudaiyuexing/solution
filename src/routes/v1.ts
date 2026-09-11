@@ -34,12 +34,12 @@ const loginRequestSchema = z
 const emailSchema = z.string().trim().email().max(254);
 const passwordSchema = z.string().min(8).max(64);
 const emailCodeSchema = z.string().regex(/^\d{6}$/);
-const recaptchaDataSchema = z.string().min(1).max(4096);
+const challengeTokenSchema = z.string().min(1).max(4096);
 const emailCodeRequestSchema = z
   .object({
     email: emailSchema,
     purpose: z.enum(['register', 'password-reset']),
-    recaptchaData: recaptchaDataSchema.optional(),
+    challengeToken: challengeTokenSchema.optional(),
   })
   .strict();
 const registerRequestSchema = z
@@ -48,7 +48,7 @@ const registerRequestSchema = z
     password: passwordSchema,
     emailCode: emailCodeSchema.optional(),
     inviteCode: z.string().min(1).max(255).optional(),
-    recaptchaData: recaptchaDataSchema.optional(),
+    challengeToken: challengeTokenSchema.optional(),
   })
   .strict();
 const passwordResetRequestSchema = z

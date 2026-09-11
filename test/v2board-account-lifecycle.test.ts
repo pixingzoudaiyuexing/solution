@@ -62,7 +62,7 @@ describe('V2BoardAuthAdapter email code', () => {
     expect(body).toEqual({ email: 'user@example.com', isforget });
   });
 
-  it('maps optional recaptcha data without forwarding extra fields', async () => {
+  it('maps an optional provider-neutral challenge token to V2Board', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ data: true, internal: 'ignored' }));
@@ -71,13 +71,13 @@ describe('V2BoardAuthAdapter email code', () => {
     await adapter.sendEmailCode({
       email: 'user@example.com',
       purpose: 'register',
-      recaptchaData: 'captcha-value',
+      challengeToken: 'challenge-value',
     });
 
     expect(requestDetails(fetcher).body).toEqual({
       email: 'user@example.com',
       isforget: 0,
-      recaptcha_data: 'captcha-value',
+      recaptcha_data: 'challenge-value',
     });
   });
 
@@ -156,7 +156,7 @@ describe('V2BoardAuthAdapter registration', () => {
       password: 'password123',
       emailCode: '123456',
       inviteCode: 'ABCDEF',
-      recaptchaData: 'captcha-value',
+      challengeToken: 'challenge-value',
     });
 
     expect(requestDetails(fetcher).body).toEqual({
@@ -164,7 +164,7 @@ describe('V2BoardAuthAdapter registration', () => {
       password: 'password123',
       email_code: '123456',
       invite_code: 'ABCDEF',
-      recaptcha_data: 'captcha-value',
+      recaptcha_data: 'challenge-value',
     });
   });
 

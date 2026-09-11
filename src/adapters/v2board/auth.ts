@@ -192,7 +192,7 @@ export class V2BoardAuthAdapter extends V2BoardAdapterBase {
               email: request.email,
               isforget: request.purpose === 'register' ? 0 : 1,
             },
-            { recaptcha_data: request.recaptchaData }
+            { recaptcha_data: request.challengeToken }
           )
         ),
       }
@@ -217,7 +217,7 @@ export class V2BoardAuthAdapter extends V2BoardAdapterBase {
           {
             email_code: request.emailCode,
             invite_code: request.inviteCode,
-            recaptcha_data: request.recaptchaData,
+            recaptcha_data: request.challengeToken,
           }
         )
       ),

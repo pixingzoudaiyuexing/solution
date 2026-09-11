@@ -548,11 +548,11 @@ Content-Type: application/json
 {
   "email": "user@example.com",
   "purpose": "register",
-  "recaptchaData": "optional-bounded-value"
+  "challengeToken": "opaque-token"
 }
 ```
 
-`purpose` 只能为 `register` 或 `password-reset`，Adapter 分别映射为官方 V2Board 的 `isforget=0` 或 `isforget=1`。`recaptchaData` 可选，映射为 `recaptcha_data`。Public Contract 不暴露 `isforget`。
+`purpose` 只能为 `register` 或 `password-reset`，Adapter 分别映射为官方 V2Board 的 `isforget=0` 或 `isforget=1`。`challengeToken` 是可选、长度受限的 opaque string；当前 Adapter 将其映射为官方 V2Board 的 `recaptcha_data`。Public Contract 不暴露 `isforget` 或任何具体 anti-bot Provider 名称。
 
 Success：
 
@@ -579,11 +579,11 @@ Content-Type: application/json
   "password": "password123",
   "emailCode": "123456",
   "inviteCode": "ABCDEF",
-  "recaptchaData": "optional-bounded-value"
+  "challengeToken": "opaque-token"
 }
 ```
 
-`password` 长度为 8 至 64；`emailCode`、`inviteCode` 和 `recaptchaData` 可选。Adapter 将可选字段映射为 `email_code`、`invite_code` 和 `recaptcha_data`。`emailCode` 可选不代表上游不会要求验证码；是否必需由 V2Board 当前配置和业务规则决定。
+`password` 长度为 8 至 64；`emailCode`、`inviteCode` 和 `challengeToken` 可选。Adapter 将它们映射为 `email_code`、`invite_code` 和官方当前使用的 `recaptcha_data`。`emailCode` 或 `challengeToken` 可选不代表上游不会要求验证；是否必需由 V2Board 当前配置和业务规则决定。
 
 成功响应与 Login 使用相同的 opaque auth DTO：
 
@@ -635,10 +635,12 @@ Gateway 不在 reset 后自动登录。验证码校验、尝试次数、用户�
 | ---- | ---- | ---- |
 | 400 | `VALIDATION_ERROR` | Public payload 或 upstream validation 无效 |
 | 409 | `REGISTRATION_UNAVAILABLE` | 官方 exact error 表明重复邮箱、注册关闭、邀请码或邮箱策略拒绝 |
-| 422 | `VERIFICATION_FAILED` | 官方 exact error 表明邮箱验证码或 reCAPTCHA 校验失败 |
+| 422 | `VERIFICATION_FAILED` | 官方 exact error 表明邮箱验证码或 anti-bot challenge 校验失败 |
 | 422 | `PASSWORD_RESET_FAILED` | 官方 exact error 表明目标用户不存在或密码重置失败 |
 | 429 | `RATE_LIMITED` | V2Board HTTP 429 或官方 exact cooldown/attempt-limit error |
 | 502 | `UPSTREAM_ERROR` | HTML、invalid JSON、未知或无法可靠分类的 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 所有响应使用 `Cache-Control: no-store`。错误响应不会透传 V2Board/Laravel message；仅对官方源码确认的完整 exact message 做业务分类，不使用模糊 `includes` 匹配。
+
+Account Lifecycle 的 anti-bot Public Contract 使用 provider-neutral `challengeToken`。Google reCAPTCHA 只是当前官方 V2Board 的 upstream implementation detail，不属于 solution Public API；当前映射为 `challengeToken -> recaptcha_data`。未来可以替换或引入其他 anti-bot Provider，而不改变 Account Lifecycle Public Contract。本 Phase 不实现 Provider selection、challenge endpoint、验证服务或 Gateway anti-bot state。
