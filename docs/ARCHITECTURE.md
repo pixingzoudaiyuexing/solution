@@ -31,7 +31,7 @@ Client Application
                    │
                    │ HTTPS
                    ▼
-         Private V2Board Origin
+         Publicly Reachable V2Board
 ```
 
 ## 网络与安全模型

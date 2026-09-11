@@ -413,6 +413,8 @@ NEEDS_PROVIDER_RUNTIME_EVIDENCE
 
 Payment Provider callback 直接进入 V2Board。Gateway 不提供 callback/webhook 路由，不验证 provider 签名，不修改订单状态，也不保存 payment session 或 QR 状态。Client Application 使用已有 Order Detail API 查询最终订单状态。
 
+支付协议要求 Provider 收到 V2Board `notify_url`。因此 V2Board 配置的 callback hostname 可能作为签名参数出现在支付跳转 URL 中；它不属于普通 Public API DTO 泄露，solution 不删除、替换或重写该参数，否则会破坏签名和 Provider callback。Consumer 仍不依赖 V2Board 的普通 API path、内部 DTO/model 或原始错误。
+
 ### Order Expiration Compatibility
 
 当前兼容目标是官方 `wyx2685/v2board` `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`（`1.7.5.2685.2333`）。该版本通过 V2Board 自己的后台订单任务处理过期状态，但 User Order list/detail 不公开权威 expiry，checkout 也不保证同步返回独立的过期错误。
@@ -495,7 +497,7 @@ GET /api/v1/access/subscription?token=<opaque-token>
 
 该 endpoint 不使用浏览器 Bearer Header；query token 本身是敏感 subscription bearer credential。token 必须是 1 至 512 字符的 URL-safe `A-Z a-z 0-9 _ -` 字符串，支持兼容 V2Board 的 normal、OTP 和 time-based token。Gateway 不保存、哈希、轮换或重新签发 token。
 
-V2Board subscription path 由部署配置 `V2BOARD_SUBSCRIBE_PATH` 固定提供。它必须是单一根相对路径，不能来自请求，也不能包含 scheme、authority、query、fragment、反斜线、percent encoding 或 traversal。subscription 请求仍通过 `V2BoardClient`，继续使用 Cloudflare Access Service Token、10 秒 timeout 和 `redirect: manual`。
+V2Board subscription path 由部署配置 `V2BOARD_SUBSCRIBE_PATH` 固定提供。它必须是单一根相对路径，不能来自请求，也不能包含 scheme、authority、query、fragment、反斜线、percent encoding 或 traversal。subscription 请求仍通过 `V2BoardClient`，继续使用 10 秒 timeout 和 `redirect: manual`；当前冻结部署不使用 Cloudflare Access Service Token。
 
 Gateway 将经过现有安全校验的 subscription client `User-Agent` 单独转发给 V2Board，用于 Clash/Mihomo、Shadowrocket、Sing-box 等协议选择；普通 header allowlist 不放宽。本版本不公开可选 `flag` 参数。
 
@@ -518,3 +520,15 @@ subscription_unavailable
 ```
 
 公共状态分别为 `400`（请求无效）、`404`（V2Board 4xx unavailable）、`502`（redirect/5xx/配置或未知故障）、`504`（timeout）。不会透传 Laravel HTML、upstream body、Location 或 token 有效性细节。V2Board 对当前用户不可用时可能合法返回 HTTP 200 空 body，Gateway 保持该权威语义。
+
+### Phase 2D Runtime Acceptance
+
+目标环境使用官方 `wyx2685/v2board` `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`（`1.7.5.2685.2333`）。验收结论：
+
+```text
+PASS WITH NON-BLOCKING NOT-TESTED ITEMS
+```
+
+已通过：official V2Board runtime compatibility、模拟 payment callback、订单 `pending -> completed`、`callback_no` 记录、套餐激活、solution order 状态同步、subscription eligibility、solution-owned access URL、subscription verbatim streaming、direct/Gateway body bytes 与 SHA-256 parity、header filtering、`Cache-Control: no-store`、Clash wire format、Mihomo 实际配置校验、Shadowrocket wire format、Sing-box wire format。
+
+仍未验证：Shadowrocket 真机导入、Sing-box 客户端导入、Clash Classic 原生客户端、真实支付。这些是 runtime gaps，不阻塞当前 Adapter contract。
