@@ -79,7 +79,10 @@ describe('V2BoardPaymentAdapter', () => {
         'opaque-token',
         'order-001',
         { paymentMethodId: '3' },
-        'https://client.example'
+        {
+          trustedOrigin: 'https://client.example',
+          trustedUserAgent: 'Mozilla/5.0 (iPhone; Mobile)',
+        }
       )
     ).resolves.toEqual(expected);
 
@@ -89,6 +92,7 @@ describe('V2BoardPaymentAdapter', () => {
     const headers = new Headers(init?.headers);
     expect(headers.get('authorization')).toBe('opaque-token');
     expect(headers.get('origin')).toBe('https://client.example');
+    expect(headers.get('user-agent')).toBe('Mozilla/5.0 (iPhone; Mobile)');
     expect(JSON.parse(String(init?.body))).toEqual({
       trade_no: 'order-001',
       method: 3,

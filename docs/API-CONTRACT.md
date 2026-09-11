@@ -395,6 +395,16 @@ Success 根据 V2Board 当前支付动作返回以下三种 Public DTO 之一：
 
 Checkout 仅在请求 `Origin` 与 `FRONTEND_ORIGINS` 精确匹配且使用 HTTPS 时转发该 Origin，以保留 V2Board 原生移动端 return 行为。Gateway 不转发浏览器提供的 `Host`、`X-Forwarded-Host`、`X-Original-Host` 或 `X-Forwarded-Proto`。桌面 QR 流程不依赖浏览器 return navigation。
 
+固定 V2Board 的 `EPayQrcode` 依赖请求 `User-Agent` 区分 Desktop 与 Mobile：Desktop 返回 `type=0` QR 内容，Mobile 返回 `type=1` 打开目标。为保留该行为，solution 仅在 checkout 请求中转发经过校验的原始 `User-Agent`；必须是 Fetch Header 可表示的 ByteString、长度为 1 至 512 UTF-8 bytes，且不得包含 C0、C1 或 DEL 控制字符。缺失 `User-Agent` 时不向上游添加该 header，V2Board 按 Desktop 处理。普通 Header allowlist 不包含 `User-Agent`，其他 Gateway API 不转发它。
+
+Mobile `type=1` 仍使用现有 redirect 安全策略：仅允许公共 HTTPS target。固定源码证明 provider 可能返回自定义 App scheme，但尚无真实 Provider 返回值可建立精确 allowlist，因此当前状态为：
+
+```text
+NEEDS_PROVIDER_RUNTIME_EVIDENCE
+```
+
+本合同不声称移动 custom scheme 已通过真实 Provider 验证，也不会为兼容性放宽为任意 scheme。
+
 Payment Provider callback 直接进入 V2Board。Gateway 不提供 callback/webhook 路由，不验证 provider 签名，不修改订单状态，也不保存 payment session 或 QR 状态。Client Application 使用已有 Order Detail API 查询最终订单状态。
 
 ### Order Expiration Compatibility
@@ -411,7 +421,7 @@ NEEDS_V2BOARD_EXPIRY_PATCH
 
 | HTTP | Code                         | 场景 |
 | ---- | ---------------------------- | ---- |
-| 400  | `VALIDATION_ERROR`           | order ID、JSON body 或 payment method ID 无效 |
+| 400  | `VALIDATION_ERROR`           | order ID、JSON body、payment method ID 或 checkout User-Agent 无效 |
 | 401  | `AUTH_REQUIRED`              | 缺少或无法识别 Bearer credential |
 | 401  | `AUTH_FAILED`                | V2Board 拒绝当前 credential |
 | 422  | `PAYMENT_METHOD_UNAVAILABLE` | V2Board 明确确认支付渠道不可用 |

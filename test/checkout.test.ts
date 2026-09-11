@@ -6,6 +6,13 @@ const env = {
   V2BOARD_BASE_URL: 'https://private.example/api/v1/',
 };
 
+const desktopUserAgent =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+const iphoneUserAgent =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148';
+const androidUserAgent =
+  'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Mobile';
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -18,6 +25,7 @@ async function checkout(
   options: {
     status?: number;
     origin?: string;
+    userAgent?: string;
     headers?: HeadersInit;
     requestBody?: unknown;
   } = {}
@@ -33,6 +41,7 @@ async function checkout(
     'cf-ray': 'request-id',
   });
   if (options.origin) headers.set('Origin', options.origin);
+  if (options.userAgent) headers.set('User-Agent', options.userAgent);
   new Headers(options.headers).forEach((value, name) => headers.set(name, value));
 
   const response = await app.request(
@@ -148,6 +157,52 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     );
     const headers = new Headers(upstreamFetch.mock.calls[0][1]?.headers);
     expect(headers.get('origin')).toBe('https://client.example');
+  });
+
+  it.each([
+    ['Desktop', desktopUserAgent],
+    ['iPhone', iphoneUserAgent],
+    ['Android', androidUserAgent],
+  ])('forwards the validated %s User-Agent to V2Board', async (_case, userAgent) => {
+    const { upstreamFetch } = await checkout(
+      { type: 0, data: 'https://pay.example/qr/123' },
+      { userAgent }
+    );
+
+    const [, init] = upstreamFetch.mock.calls[0];
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('user-agent')).toBe(userAgent);
+  });
+
+  it('omits User-Agent upstream when the request does not provide one', async () => {
+    const { upstreamFetch } = await checkout({ type: 0, data: 'opaque-qr' });
+    expect(
+      new Headers(upstreamFetch.mock.calls[0][1]?.headers).has('user-agent')
+    ).toBe(false);
+  });
+
+  it('forwards an allowlisted Origin and validated User-Agent together', async () => {
+    const { upstreamFetch } = await checkout(
+      { type: 0, data: 'opaque-qr' },
+      { origin: 'https://client.example', userAgent: iphoneUserAgent }
+    );
+    const headers = new Headers(upstreamFetch.mock.calls[0][1]?.headers);
+    expect(headers.get('origin')).toBe('https://client.example');
+    expect(headers.get('user-agent')).toBe(iphoneUserAgent);
+    expect(headers.has('host')).toBe(false);
+    expect(headers.has('x-forwarded-host')).toBe(false);
+  });
+
+  it('rejects an oversized User-Agent without contacting V2Board', async () => {
+    const { response, upstreamFetch } = await checkout(
+      { type: 0, data: 'opaque-qr' },
+      { userAgent: 'a'.repeat(513) }
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    expect(upstreamFetch).not.toHaveBeenCalled();
   });
 
   it('does not forward a disallowed Origin or spoofed host headers', async () => {
@@ -340,9 +395,10 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     });
   });
 
-  it('does not log payment payloads, redirect targets, merchant fields, or token', async () => {
+  it('does not log payment payloads, redirect targets, User-Agent, or token', async () => {
     const sensitiveTarget = 'http://127.0.0.1/?merchant=secret-merchant';
     const token = 'sensitive-checkout-token';
+    const userAgent = 'Sensitive-UA/1.0';
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.stubGlobal(
       'fetch',
@@ -362,6 +418,7 @@ describe('POST /api/v1/orders/:id/checkout', () => {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'User-Agent': userAgent,
         },
         body: JSON.stringify({ paymentMethodId: '3' }),
       },
@@ -374,6 +431,7 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     expect(logged).not.toContain('secret-merchant');
     expect(logged).not.toContain('secret-pid');
     expect(logged).not.toContain('secret-key');
+    expect(logged).not.toContain(userAgent);
     expect(logged).not.toContain(token);
   });
 });

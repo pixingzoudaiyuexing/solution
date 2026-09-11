@@ -25,6 +25,7 @@ describe('V2BoardClient', () => {
         'Content-Type': 'application/json',
         Cookie: 'session=attacker',
         Host: 'attacker.example',
+        'User-Agent': 'attacker-controlled',
         'CF-Connecting-IP': '203.0.113.1',
         'CF-Access-Client-Id': 'attacker-id',
         'CF-Access-Client-Secret': 'attacker-secret',
@@ -45,8 +46,42 @@ describe('V2BoardClient', () => {
     expect(headers.get('cf-access-client-secret')).toBe('service-secret');
     expect(headers.has('cookie')).toBe(false);
     expect(headers.has('host')).toBe(false);
+    expect(headers.has('user-agent')).toBe(false);
     expect(headers.has('cf-connecting-ip')).toBe(false);
     expect(headers.has('x-forwarded-for')).toBe(false);
+  });
+
+  it('forwards User-Agent only through the explicit trusted channel', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'));
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/internal/' },
+      fetcher
+    );
+
+    await client.fetch('user/order/checkout', {
+      trustedUserAgent: 'Mozilla/5.0 (iPhone; Mobile)',
+    });
+
+    const headers = new Headers(fetcher.mock.calls[0][1]?.headers);
+    expect(headers.get('user-agent')).toBe('Mozilla/5.0 (iPhone; Mobile)');
+  });
+
+  it.each([
+    ['oversized', 'a'.repeat(513)],
+    ['oversized UTF-8', '界'.repeat(171)],
+    ['CRLF', 'Mobile\r\nX-Attacker: injected'],
+    ['control character', 'Mobile\u007fInjected'],
+  ])('rejects an %s trusted User-Agent before fetch', async (_case, userAgent) => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/internal/' },
+      fetcher
+    );
+
+    await expect(
+      client.fetch('user/order/checkout', { trustedUserAgent: userAgent })
+    ).rejects.toThrow('Invalid trusted User-Agent');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([

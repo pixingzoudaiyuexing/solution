@@ -1,3 +1,5 @@
+import { validateTrustedUserAgent } from '../../security/user-agent';
+
 export interface V2BoardClientConfig {
   baseUrl: string;
   accessClientId?: string;
@@ -10,6 +12,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface V2BoardRequestInit extends RequestInit {
   trustedOrigin?: string;
+  trustedUserAgent?: string;
 }
 
 export class UpstreamRedirectError extends Error {
@@ -61,7 +64,7 @@ export class V2BoardClient {
   async fetch(path: string, init?: V2BoardRequestInit): Promise<Response> {
     const url = this.resolvePath(path);
     const headers = this.buildHeaders(init?.headers);
-    const { trustedOrigin, ...fetchInit } = init ?? {};
+    const { trustedOrigin, trustedUserAgent, ...fetchInit } = init ?? {};
 
     if (trustedOrigin !== undefined) {
       const origin = new URL(trustedOrigin);
@@ -69,6 +72,9 @@ export class V2BoardClient {
         throw new Error('Trusted upstream Origin must be an HTTPS origin');
       }
       headers.set('Origin', trustedOrigin);
+    }
+    if (trustedUserAgent !== undefined) {
+      headers.set('User-Agent', validateTrustedUserAgent(trustedUserAgent));
     }
     const controller = new AbortController();
     const inputSignal = init?.signal;

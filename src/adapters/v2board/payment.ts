@@ -70,6 +70,11 @@ function publicIcon(icon: string | null | undefined, hiddenOrigin: string): stri
   }
 }
 
+export interface V2BoardCheckoutContext {
+  trustedOrigin?: string;
+  trustedUserAgent?: string;
+}
+
 export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
   constructor(client: V2BoardClient, private readonly hiddenOrigin: string) {
     super(client);
@@ -105,7 +110,7 @@ export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
     authToken: string,
     orderId: string,
     request: CheckoutRequest,
-    trustedOrigin?: string
+    context: V2BoardCheckoutContext = {}
   ): Promise<CheckoutAction> {
     const { response, payload } = await this.requestJson('user/order/checkout', {
       method: 'POST',
@@ -118,7 +123,8 @@ export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
         trade_no: orderId,
         method: Number(request.paymentMethodId),
       }),
-      trustedOrigin,
+      trustedOrigin: context.trustedOrigin,
+      trustedUserAgent: context.trustedUserAgent,
     });
     this.assertAuthenticatedResponse(response);
 

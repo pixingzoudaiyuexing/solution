@@ -22,6 +22,7 @@ import {
   type GatewayContext,
 } from '../../security/authorization';
 import { isAllowedFrontendOrigin } from '../../security/cors';
+import { validateTrustedUserAgent } from '../../security/user-agent';
 
 const ordersRouter = new Hono<GatewayContext>();
 const productIdSchema = z
@@ -130,6 +131,15 @@ ordersRouter.post('/:id/checkout', requireAuthorization, async (c) => {
   ) && requestOrigin.startsWith('https://')
     ? requestOrigin
     : undefined;
+  const requestUserAgent = c.req.header('User-Agent');
+  let trustedUserAgent: string | undefined;
+  if (requestUserAgent !== undefined) {
+    try {
+      trustedUserAgent = validateTrustedUserAgent(requestUserAgent);
+    } catch {
+      throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+    }
+  }
   const adapter = new V2BoardPaymentAdapter(
     createV2BoardClient(c.env),
     c.env.V2BOARD_BASE_URL
@@ -138,7 +148,7 @@ ordersRouter.post('/:id/checkout', requireAuthorization, async (c) => {
     c.get('authToken'),
     parsedId.data,
     parsedBody.data,
-    trustedOrigin
+    { trustedOrigin, trustedUserAgent }
   );
   const response: CheckoutSuccessResponse = {
     ok: true,
