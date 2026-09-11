@@ -11,11 +11,12 @@
 - 通过 CF Tunnel + Access 严格保护真实后端入口。
 
 ## 当前实现状态
-当前仓库已实现 Phase 2C.4 Checkout & Payment Method Foundation：登录、当前用户身份查询、产品列表、公共资源状态、订单创建/列表/详情、可用支付方式查询和 checkout。Gateway 保持无状态，Payment Provider callback 仍直接进入 V2Board；refund、reconciliation、subscription 和前端集成不在当前实现范围。
+当前仓库已实现 Phase 2D Subscription & Access Foundation：在现有认证、目录、订单和 checkout 能力上，增加已购订阅资格判断、solution-owned access URL 与原始 subscription body 安全流式转发。Gateway 保持无状态，V2Board 继续拥有 subscription token、实际可用性和协议生成；Payment Provider callback 仍直接进入 V2Board。refund、reconciliation 和前端集成不在当前实现范围。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
 - `V2BOARD_BASE_URL`: V2Board API v1 基础地址，必须使用 HTTPS，例如 `https://private.example/api/v1/`；末尾缺少 `/` 时客户端会自动补齐。
+- `V2BOARD_SUBSCRIBE_PATH`: V2Board 隐藏 origin 上固定的 subscription route，例如 `/client/subscribe`。必须是根相对路径；不能包含 origin、query、fragment、反斜线、percent encoding 或 traversal。
 - `V2BOARD_ACCESS_CLIENT_ID`: 可选的 Cloudflare Access Service Token ID，必须与 Secret 成对配置。
 - `V2BOARD_ACCESS_CLIENT_SECRET`: 可选的 Cloudflare Access Service Token Secret，只能通过 Worker secret 配置，禁止提交到 Git。
 

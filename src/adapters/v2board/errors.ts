@@ -67,3 +67,10 @@ export class V2BoardPaymentCreateError extends Error {
     this.name = 'V2BoardPaymentCreateError';
   }
 }
+
+export class V2BoardSubscriptionUnavailableError extends Error {
+  constructor() {
+    super('V2Board subscription unavailable');
+    this.name = 'V2BoardSubscriptionUnavailableError';
+  }
+}

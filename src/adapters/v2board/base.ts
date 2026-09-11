@@ -25,19 +25,26 @@ function isTimeout(error: unknown): boolean {
 export abstract class V2BoardAdapterBase {
   constructor(protected readonly client: V2BoardClient) {}
 
-  protected async requestJson(
+  protected async request(
     path: string,
-    init: V2BoardRequestInit
-  ): Promise<V2BoardJsonResponse> {
-    let response: Response;
+    init: V2BoardRequestInit,
+    client: V2BoardClient = this.client
+  ): Promise<Response> {
     try {
-      response = await this.client.fetch(path, init);
+      return await client.fetch(path, init);
     } catch (error) {
       if (isTimeout(error)) {
         throw new V2BoardTimeoutError();
       }
       throw new V2BoardUpstreamError();
     }
+  }
+
+  protected async requestJson(
+    path: string,
+    init: V2BoardRequestInit
+  ): Promise<V2BoardJsonResponse> {
+    const response = await this.request(path, init);
 
     let payload: unknown;
     try {

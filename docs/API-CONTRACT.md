@@ -21,6 +21,8 @@
 | `GET /api/v1/billing/methods`          | Yes            | `user/order/getPaymentMethod`   |
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
 | `GET /api/v1/access`                   | Yes            | `user/getSubscribe`             |
+| `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
+| `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
@@ -457,3 +459,74 @@ V2Board checkout 返回精确的 `Order has expired` 业务错误时，Gateway �
 }
 ```
 未知的 HTML 或 500 必须映射为 `502 UPSTREAM_ERROR`。
+
+## Phase 2D 已实现契约
+
+### Subscription Metadata
+
+```http
+GET /api/v1/subscription
+Authorization: Bearer <opaque-token>
+```
+
+从未成功购买订阅、只有 pending/cancelled 订单、或只有 `plan_id=0` 充值订单时：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "eligible": false,
+    "accessUrl": null
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 此时不会调用 V2Board `user/getSubscribe`，避免无资格用户触发 subscription credential 生成。
+
+V2Board 订单历史中存在 `plan_id>0` 且状态为 paid/processing、completed 或 adjusted 的订阅订单时，用户属于 previous purchaser：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "eligible": true,
+    "accessUrl": "https://gateway.example/api/v1/access/subscription?token=opaque-token"
+  },
+  "requestId": "request-id"
+}
+```
+
+`accessUrl` 使用经过校验的当前 solution Gateway HTTPS origin 构建，不使用 upstream origin、`Host` 或 `X-Forwarded-*`。Gateway 从 V2Board `subscribe_url` 中严格提取 V2Board 生成的 token，但不返回 raw upstream URL、raw user token、UUID 或订单内部字段。previous purchaser 即使当前订阅已过期仍可得到 access URL；实际 subscription 是否可用继续由 V2Board 决定。
+
+### Subscription Access
+
+```http
+GET /api/v1/access/subscription?token=<opaque-token>
+```
+
+该 endpoint 不使用浏览器 Bearer Header；query token 本身是敏感 subscription bearer credential。token 必须是 1 至 512 字符的 URL-safe `A-Z a-z 0-9 _ -` 字符串，支持兼容 V2Board 的 normal、OTP 和 time-based token。Gateway 不保存、哈希、轮换或重新签发 token。
+
+V2Board subscription path 由部署配置 `V2BOARD_SUBSCRIBE_PATH` 固定提供。它必须是单一根相对路径，不能来自请求，也不能包含 scheme、authority、query、fragment、反斜线、percent encoding 或 traversal。subscription 请求仍通过 `V2BoardClient`，继续使用 Cloudflare Access Service Token、10 秒 timeout 和 `redirect: manual`。
+
+Gateway 将经过现有安全校验的 subscription client `User-Agent` 单独转发给 V2Board，用于 Clash/Mihomo、Shadowrocket、Sing-box 等协议选择；普通 header allowlist 不放宽。本版本不公开可选 `flag` 参数。
+
+成功响应直接从 upstream `Response.body` 流向 Client，不读取或转换 body；Clash YAML、通用 base64、Sing-box JSON 和成功空响应均保持原始 bytes。只允许以下 upstream response headers：
+
+```text
+Content-Type
+Content-Disposition
+subscription-userinfo
+profile-update-interval
+profile-title
+```
+
+`Set-Cookie`、`Server`、`X-Powered-By`、`Location`、`profile-web-page-url`、Cloudflare/internal headers 均不转发。所有 access responses 使用 `Cache-Control: no-store`。
+
+无效请求、无效/过期 token、不可用订阅及 upstream 故障统一返回纯文本：
+
+```text
+subscription_unavailable
+```
+
+公共状态分别为 `400`（请求无效）、`404`（V2Board 4xx unavailable）、`502`（redirect/5xx/配置或未知故障）、`504`（timeout）。不会透传 Laravel HTML、upstream body、Location 或 token 有效性细节。V2Board 对当前用户不可用时可能合法返回 HTTP 200 空 body，Gateway 保持该权威语义。

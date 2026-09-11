@@ -15,6 +15,10 @@ import {
 } from '../security/authorization';
 import { ordersRouter } from './v1/orders';
 import { billingRouter } from './v1/billing';
+import {
+  subscriptionAccessRouter,
+  subscriptionRouter,
+} from './v1/subscription';
 
 const loginRequestSchema = z
   .object({
@@ -91,5 +95,7 @@ v1Router.get('/resources', requireAuthorization, async (c) => {
 
 v1Router.route('/orders', ordersRouter);
 v1Router.route('/billing', billingRouter);
+v1Router.route('/subscription', subscriptionRouter);
+v1Router.route('/access', subscriptionAccessRouter);
 
 export { v1Router };
