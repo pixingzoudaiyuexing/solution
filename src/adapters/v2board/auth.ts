@@ -1,12 +1,24 @@
 import { z } from 'zod';
-import type { LoginRequest, LoginResponseData } from '../../contract/auth';
+import type {
+  EmailCodeRequest,
+  EmailCodeResponseData,
+  LoginRequest,
+  LoginResponseData,
+  PasswordResetRequest,
+  PasswordResetResponseData,
+  RegisterRequest,
+} from '../../contract/auth';
 import type { CurrentUserResponseData } from '../../contract/user';
 import { V2BoardClient } from './client';
 import { V2BoardAdapterBase } from './base';
 import {
   V2BoardAuthenticationError,
+  V2BoardPasswordResetError,
+  V2BoardRateLimitedError,
+  V2BoardRegistrationUnavailableError,
   V2BoardUpstreamError,
   V2BoardValidationError,
+  V2BoardVerificationError,
 } from './errors';
 
 const authDataSchema = z
@@ -15,6 +27,7 @@ const authDataSchema = z
 const loginEnvelopeSchema = z
   .object({ data: authDataSchema })
   .strip();
+const trueResponseSchema = z.object({ data: z.literal(true) }).strip();
 
 const bannedSchema = z
   .union([z.boolean(), z.literal(0), z.literal(1)])
@@ -54,6 +67,40 @@ const AUTH_FAILURE_PREFIXES = [
   '密码错误次数过多',
 ];
 
+const RATE_LIMIT_MESSAGES = new Set([
+  'email verification code has been sent, please request again later',
+  '验证码已发送，请过一会儿再请求',
+  'reset failed, please try again later',
+  '重置失败，请稍后再试',
+]);
+const VERIFICATION_MESSAGES = new Set([
+  'incorrect email verification code',
+  '邮箱验证码有误',
+  'invalid code is incorrect',
+  '验证码有误',
+]);
+const REGISTRATION_UNAVAILABLE_MESSAGES = new Set([
+  'email already exists',
+  '邮箱已在系统中存在',
+  'this email is registered',
+  '该邮箱已存在',
+  'registration has closed',
+  '本站已关闭注册',
+  'you must use the invitation code to register',
+  '必须使用邀请码才可以注册',
+  'invalid invitation code',
+  '邀请码无效',
+  'email suffix is not in the whitelist',
+  '邮箱后缀不处于白名单中',
+  'gmail alias is not supported',
+  '不支持 gmail 别名邮箱',
+]);
+const PASSWORD_RESET_MESSAGES = new Set([
+  'this email is not registered in the system',
+  '该邮箱不存在系统中',
+  'reset failed',
+]);
+
 function authFailureMessage(payload: unknown): string | undefined {
   const parsed = errorResponseSchema.safeParse(payload);
   if (!parsed.success) {
@@ -71,6 +118,26 @@ function isAuthenticationFailure(message: string): boolean {
     AUTH_FAILURE_MESSAGES.has(normalized) ||
     AUTH_FAILURE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
   );
+}
+
+function authData(payload: unknown): z.infer<typeof authDataSchema> {
+  const direct = authDataSchema.safeParse(payload);
+  const envelope = loginEnvelopeSchema.safeParse(payload);
+  if (direct.success) return direct.data;
+  if (envelope.success) return envelope.data.data;
+  throw new V2BoardUpstreamError();
+}
+
+function mappedRequest(
+  required: Record<string, unknown>,
+  optional: Record<string, string | undefined>
+): Record<string, unknown> {
+  return Object.fromEntries([
+    ...Object.entries(required),
+    ...Object.entries(optional).filter((entry): entry is [string, string] =>
+      entry[1] !== undefined
+    ),
+  ]);
 }
 
 function accountStatus(
@@ -102,21 +169,84 @@ export class V2BoardAuthAdapter extends V2BoardAdapterBase {
     });
 
     this.assertAuthenticationResponse(response, payload);
-    const direct = authDataSchema.safeParse(payload);
-    const envelope = loginEnvelopeSchema.safeParse(payload);
-    let data: z.infer<typeof authDataSchema>;
-    if (direct.success) {
-      data = direct.data;
-    } else if (envelope.success) {
-      data = envelope.data.data;
-    } else {
-      throw new V2BoardUpstreamError();
-    }
+    const data = authData(payload);
 
     return {
       accessToken: data.auth_data,
       tokenType: 'Bearer',
     };
+  }
+
+  async sendEmailCode(request: EmailCodeRequest): Promise<EmailCodeResponseData> {
+    const { response, payload } = await this.requestJson(
+      'passport/comm/sendEmailVerify',
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          mappedRequest(
+            {
+              email: request.email,
+              isforget: request.purpose === 'register' ? 0 : 1,
+            },
+            { recaptcha_data: request.recaptchaData }
+          )
+        ),
+      }
+    );
+    this.assertLifecycleResponse(response, payload, request.purpose);
+    if (!trueResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { sent: true };
+  }
+
+  async register(request: RegisterRequest): Promise<LoginResponseData> {
+    const { response, payload } = await this.requestJson('passport/auth/register', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        mappedRequest(
+          { email: request.email, password: request.password },
+          {
+            email_code: request.emailCode,
+            invite_code: request.inviteCode,
+            recaptcha_data: request.recaptchaData,
+          }
+        )
+      ),
+    });
+    this.assertLifecycleResponse(response, payload, 'register');
+    const data = authData(payload);
+    return { accessToken: data.auth_data, tokenType: 'Bearer' };
+  }
+
+  async resetPassword(
+    request: PasswordResetRequest
+  ): Promise<PasswordResetResponseData> {
+    const { response, payload } = await this.requestJson('passport/auth/forget', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: request.email,
+        email_code: request.emailCode,
+        password: request.newPassword,
+      }),
+    });
+    this.assertLifecycleResponse(response, payload, 'password-reset');
+    if (!trueResponseSchema.safeParse(payload).success) {
+      throw new V2BoardUpstreamError();
+    }
+    return { reset: true };
   }
 
   async currentUser(authToken: string): Promise<CurrentUserResponseData> {
@@ -169,6 +299,32 @@ export class V2BoardAuthAdapter extends V2BoardAdapterBase {
       throw new V2BoardAuthenticationError();
     }
 
+    throw new V2BoardUpstreamError();
+  }
+
+  private assertLifecycleResponse(
+    response: Response,
+    payload: unknown,
+    purpose: 'register' | 'password-reset'
+  ): void {
+    if (response.ok) return;
+    if (response.status === 400 || response.status === 422) {
+      throw new V2BoardValidationError();
+    }
+    if (response.status === 429) {
+      throw new V2BoardRateLimitedError();
+    }
+
+    const message = authFailureMessage(payload)?.trim().toLowerCase();
+    if (!message) throw new V2BoardUpstreamError();
+    if (RATE_LIMIT_MESSAGES.has(message)) throw new V2BoardRateLimitedError();
+    if (VERIFICATION_MESSAGES.has(message)) throw new V2BoardVerificationError();
+    if (REGISTRATION_UNAVAILABLE_MESSAGES.has(message)) {
+      throw new V2BoardRegistrationUnavailableError();
+    }
+    if (purpose === 'password-reset' && PASSWORD_RESET_MESSAGES.has(message)) {
+      throw new V2BoardPasswordResetError();
+    }
     throw new V2BoardUpstreamError();
   }
 }

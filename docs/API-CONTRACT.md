@@ -532,3 +532,113 @@ PASS WITH NON-BLOCKING NOT-TESTED ITEMS
 已通过：official V2Board runtime compatibility、模拟 payment callback、订单 `pending -> completed`、`callback_no` 记录、套餐激活、solution order 状态同步、subscription eligibility、solution-owned access URL、subscription verbatim streaming、direct/Gateway body bytes 与 SHA-256 parity、header filtering、`Cache-Control: no-store`、Clash wire format、Mihomo 实际配置校验、Shadowrocket wire format、Sing-box wire format。
 
 仍未验证：Shadowrocket 真机导入、Sing-box 客户端导入、Clash Classic 原生客户端、真实支付。这些是 runtime gaps，不阻塞当前 Adapter contract。
+
+## Phase 2E Account Lifecycle
+
+以下接口均通过 `V2BoardClient` 调用官方 `wyx2685/v2board` `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`，使用 10 秒 timeout 和 `redirect: manual`。Gateway 不存储验证码、密码、注册状态或 session。
+
+### Email Verification Code
+
+```http
+POST /api/v1/auth/email-code
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "user@example.com",
+  "purpose": "register",
+  "recaptchaData": "optional-bounded-value"
+}
+```
+
+`purpose` 只能为 `register` 或 `password-reset`，Adapter 分别映射为官方 V2Board 的 `isforget=0` 或 `isforget=1`。`recaptchaData` 可选，映射为 `recaptcha_data`。Public Contract 不暴露 `isforget`。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "sent": true },
+  "requestId": "request-id"
+}
+```
+
+V2Board 负责 IP 限流、邮箱白名单、Gmail alias 限制、邮箱存在性、发送冷却、reCAPTCHA、邮件派发和验证码存储。
+
+### Register
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123",
+  "emailCode": "123456",
+  "inviteCode": "ABCDEF",
+  "recaptchaData": "optional-bounded-value"
+}
+```
+
+`password` 长度为 8 至 64；`emailCode`、`inviteCode` 和 `recaptchaData` 可选。Adapter 将可选字段映射为 `email_code`、`invite_code` 和 `recaptcha_data`。`emailCode` 可选不代表上游不会要求验证码；是否必需由 V2Board 当前配置和业务规则决定。
+
+成功响应与 Login 使用相同的 opaque auth DTO：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "accessToken": "opaque-token",
+    "tokenType": "Bearer"
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不解析、验证或保存 `auth_data`，也不创建第二套 session。注册关闭、邀请码、邮箱验证、重复邮箱、试用套餐和注册限流均由 V2Board 处理。
+
+### Password Reset
+
+```http
+POST /api/v1/auth/password/reset
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "user@example.com",
+  "emailCode": "123456",
+  "newPassword": "new-password123"
+}
+```
+
+`emailCode` 必须为 6 位数字；`newPassword` 长度为 8 至 64。Adapter 分别映射为 `email_code` 和 `password`。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "reset": true },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不在 reset 后自动登录。验证码校验、尝试次数、用户存在性、密码更新、验证码失效和旧 session 失效全部由 V2Board 负责。
+
+### Account Lifecycle Errors
+
+| HTTP | Code | 场景 |
+| ---- | ---- | ---- |
+| 400 | `VALIDATION_ERROR` | Public payload 或 upstream validation 无效 |
+| 409 | `REGISTRATION_UNAVAILABLE` | 官方 exact error 表明重复邮箱、注册关闭、邀请码或邮箱策略拒绝 |
+| 422 | `VERIFICATION_FAILED` | 官方 exact error 表明邮箱验证码或 reCAPTCHA 校验失败 |
+| 422 | `PASSWORD_RESET_FAILED` | 官方 exact error 表明目标用户不存在或密码重置失败 |
+| 429 | `RATE_LIMITED` | V2Board HTTP 429 或官方 exact cooldown/attempt-limit error |
+| 502 | `UPSTREAM_ERROR` | HTML、invalid JSON、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+所有响应使用 `Cache-Control: no-store`。错误响应不会透传 V2Board/Laravel message；仅对官方源码确认的完整 exact message 做业务分类，不使用模糊 `includes` 匹配。

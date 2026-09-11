@@ -26,6 +26,34 @@ export class V2BoardTimeoutError extends Error {
   }
 }
 
+export class V2BoardRegistrationUnavailableError extends Error {
+  constructor() {
+    super('V2Board registration unavailable');
+    this.name = 'V2BoardRegistrationUnavailableError';
+  }
+}
+
+export class V2BoardVerificationError extends Error {
+  constructor() {
+    super('V2Board verification rejected');
+    this.name = 'V2BoardVerificationError';
+  }
+}
+
+export class V2BoardRateLimitedError extends Error {
+  constructor() {
+    super('V2Board request rate limited');
+    this.name = 'V2BoardRateLimitedError';
+  }
+}
+
+export class V2BoardPasswordResetError extends Error {
+  constructor() {
+    super('V2Board password reset rejected');
+    this.name = 'V2BoardPasswordResetError';
+  }
+}
+
 export class V2BoardOrderQueryError extends Error {
   constructor() {
     super('V2Board order query failed');

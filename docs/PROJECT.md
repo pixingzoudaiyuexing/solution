@@ -11,7 +11,7 @@
 - 保持 Gateway 无状态；V2Board 可以继续公网可达，不要求 Cloudflare Tunnel、Access 或强制网络隔离。
 
 ## 当前实现状态
-当前仓库已实现 Phase 2D Subscription & Access Foundation：在现有认证、目录、订单和 checkout 能力上，增加已购订阅资格判断、solution-owned access URL 与原始 subscription body 安全流式转发。Gateway 保持无状态，V2Board 继续拥有 subscription token、实际可用性和协议生成；Payment Provider callback 仍直接进入 V2Board。refund、reconciliation 和前端集成不在当前实现范围。
+当前仓库已实现 Phase 2E Account Lifecycle：在既有认证、目录、订单、checkout 与 subscription 能力上，增加邮箱验证码、注册和密码重置 Public Contract。Gateway 只转换 DTO 和规范化错误；V2Board 继续拥有验证码、限流、注册规则、密码更新、session 失效、subscription token 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。refund、reconciliation 和前端集成不在当前实现范围。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。

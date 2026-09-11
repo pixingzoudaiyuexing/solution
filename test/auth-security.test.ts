@@ -93,6 +93,78 @@ describe('authentication security regressions', () => {
     expect(logged).not.toContain('private.example');
   });
 
+  it('does not log account lifecycle credentials or verification data', async () => {
+    const sensitive = {
+      password: 'sensitive-register-password',
+      newPassword: 'sensitive-reset-password',
+      emailCode: '654321',
+      recaptchaData: 'sensitive-recaptcha-data',
+      inviteCode: 'sensitive-invite-code',
+    };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('<h1>Internal lifecycle failure</h1>', { status: 500 })
+      )
+    );
+
+    await app.request(
+      '/api/v1/auth/email-code',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'user@example.com',
+          purpose: 'register',
+          recaptchaData: sensitive.recaptchaData,
+        }),
+      },
+      env
+    );
+    await app.request(
+      '/api/v1/auth/register',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'user@example.com',
+          password: sensitive.password,
+          emailCode: sensitive.emailCode,
+          inviteCode: sensitive.inviteCode,
+          recaptchaData: sensitive.recaptchaData,
+        }),
+      },
+      env
+    );
+    await app.request(
+      '/api/v1/auth/password/reset',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'user@example.com',
+          emailCode: sensitive.emailCode,
+          newPassword: sensitive.newPassword,
+        }),
+      },
+      env
+    );
+
+    const logged = JSON.stringify([
+      ...log.mock.calls,
+      ...warn.mock.calls,
+      ...error.mock.calls,
+    ]);
+    for (const value of Object.values(sensitive)) {
+      expect(logged).not.toContain(value);
+    }
+    expect(logged).not.toContain('Internal lifecycle failure');
+    expect(logged).not.toContain('backend.example');
+  });
+
   it.each([
     'Basic opaque-token',
     'Bearer',

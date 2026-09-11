@@ -10,10 +10,14 @@ import {
   V2BoardOrderExpiredError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
+  V2BoardPasswordResetError,
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
+  V2BoardRateLimitedError,
+  V2BoardRegistrationUnavailableError,
   V2BoardTimeoutError,
   V2BoardValidationError,
+  V2BoardVerificationError,
 } from '../adapters/v2board/errors';
 import { requestId } from './request-id';
 
@@ -39,6 +43,42 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('VALIDATION_ERROR', 'Invalid request', id),
       400
+    );
+  }
+
+  if (err instanceof V2BoardRegistrationUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'REGISTRATION_UNAVAILABLE',
+        'Registration unavailable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardVerificationError) {
+    return c.json(
+      publicErrorResponse('VERIFICATION_FAILED', 'Verification failed', id),
+      422
+    );
+  }
+
+  if (err instanceof V2BoardRateLimitedError) {
+    return c.json(
+      publicErrorResponse('RATE_LIMITED', 'Too many requests', id),
+      429
+    );
+  }
+
+  if (err instanceof V2BoardPasswordResetError) {
+    return c.json(
+      publicErrorResponse(
+        'PASSWORD_RESET_FAILED',
+        'Unable to reset password',
+        id
+      ),
+      422
     );
   }
 

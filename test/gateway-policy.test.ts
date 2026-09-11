@@ -56,10 +56,14 @@ describe('gateway HTTP policy', () => {
   });
 
   it('does not expose out-of-scope routes', async () => {
-    const register = await app.request('/api/v1/auth/register', { method: 'POST' }, env);
+    const quickLogin = await app.request(
+      '/api/v1/auth/quick-login',
+      { method: 'POST' },
+      env
+    );
     const purchases = await app.request('/api/v1/purchases', undefined, env);
 
-    expect(register.status).toBe(404);
+    expect(quickLogin.status).toBe(404);
     expect(purchases.status).toBe(404);
   });
 });
