@@ -5,7 +5,11 @@
   "compatibility_date": "2024-03-20",
   "observability": {
     "enabled": true,
-    "redact_query_string": true
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    }
   },
   "placement": {
     "mode": "smart"
