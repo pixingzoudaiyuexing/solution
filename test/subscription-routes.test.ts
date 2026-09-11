@@ -26,6 +26,24 @@ function subscriptionRequest(headers: HeadersInit = {}): Request {
   });
 }
 
+function responseWithCancellableBody(
+  status: number,
+  cancel: (reason: unknown) => void | Promise<void>
+): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('private Laravel error'));
+      },
+      cancel,
+    }),
+    {
+      status,
+      headers: { Location: 'https://private.example/login' },
+    }
+  );
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -242,12 +260,10 @@ describe('GET /api/v1/access/subscription', () => {
     [403, 404],
     [500, 502],
   ])('normalizes upstream HTTP %s to %s', async (upstreamStatus, publicStatus) => {
-    const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response('<h1>private Laravel error</h1>', {
-        status: upstreamStatus,
-        headers: { Location: 'https://private.example/login' },
-      })
-    );
+    const cancel = vi.fn();
+    const upstreamFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(responseWithCancellableBody(upstreamStatus, cancel));
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.request(
@@ -259,6 +275,8 @@ describe('GET /api/v1/access/subscription', () => {
     expect(response.status).toBe(publicStatus);
     expect(await response.text()).toBe('subscription_unavailable');
     expect(response.headers.has('location')).toBe(false);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(upstreamFetch).toHaveBeenCalledOnce();
   });
 
   it('normalizes an upstream timeout', async () => {

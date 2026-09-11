@@ -1,5 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { V2BoardClient } from '../src/adapters/v2board/client';
+import {
+  UpstreamRedirectError,
+  V2BoardClient,
+} from '../src/adapters/v2board/client';
+
+function responseWithCancellableBody(
+  status: number,
+  cancel: (reason: unknown) => void | Promise<void>
+): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('unused upstream body'));
+      },
+      cancel,
+    }),
+    {
+      status,
+      headers: { Location: 'https://private.example/login' },
+    }
+  );
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -100,18 +121,35 @@ describe('V2BoardClient', () => {
   });
 
   it('fails closed on an upstream redirect', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(null, {
-        status: 302,
-        headers: { Location: 'https://private.example/login' },
-      })
-    );
+    const cancel = vi.fn();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(responseWithCancellableBody(302, cancel));
     const client = new V2BoardClient(
       { baseUrl: 'https://private.example/' },
       fetcher
     );
 
-    await expect(client.fetch('user/info')).rejects.toThrow('Upstream redirect rejected');
+    await expect(client.fetch('user/info')).rejects.toBeInstanceOf(
+      UpstreamRedirectError
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the redirect error when body cancellation fails', async () => {
+    const cancel = vi.fn().mockRejectedValue(new Error('cancel failed'));
+    const client = new V2BoardClient(
+      { baseUrl: 'https://private.example/' },
+      vi.fn<typeof fetch>().mockResolvedValue(
+        responseWithCancellableBody(302, cancel)
+      )
+    );
+
+    await expect(client.fetch('user/info')).rejects.toBeInstanceOf(
+      UpstreamRedirectError
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('rejects a non-HTTPS upstream origin', () => {

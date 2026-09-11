@@ -1,4 +1,5 @@
 import { validateTrustedUserAgent } from '../../security/user-agent';
+import { cancelUnusedResponseBody } from '../../http/response-body';
 
 export interface V2BoardClientConfig {
   baseUrl: string;
@@ -114,6 +115,7 @@ export class V2BoardClient {
     }
 
     if (response.status >= 300 && response.status < 400) {
+      await cancelUnusedResponseBody(response);
       throw new UpstreamRedirectError();
     }
 

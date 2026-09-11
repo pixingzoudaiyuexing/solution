@@ -4,6 +4,7 @@ import {
   normalizeV2BoardSubscribePath,
   validateSubscriptionToken,
 } from '../../security/subscription';
+import { cancelUnusedResponseBody } from '../../http/response-body';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
@@ -123,10 +124,11 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
       this.originClient
     );
 
-    if (response.status >= 400 && response.status < 500) {
-      throw new V2BoardSubscriptionUnavailableError();
-    }
     if (!response.ok) {
+      await cancelUnusedResponseBody(response);
+      if (response.status >= 400 && response.status < 500) {
+        throw new V2BoardSubscriptionUnavailableError();
+      }
       throw new V2BoardUpstreamError();
     }
 

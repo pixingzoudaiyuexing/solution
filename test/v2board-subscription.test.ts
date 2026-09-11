@@ -31,6 +31,21 @@ function createAdapter(fetcher: typeof fetch): V2BoardSubscriptionAdapter {
   );
 }
 
+function responseWithCancellableBody(
+  status: number,
+  cancel: (reason: unknown) => void | Promise<void>
+): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('private upstream body'));
+      },
+      cancel,
+    }),
+    { status }
+  );
+}
+
 describe('V2BoardSubscriptionAdapter metadata', () => {
   it.each([1, 3, 4])(
     'treats subscription order status %s as previously purchased',
@@ -229,23 +244,33 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
 describe('V2BoardSubscriptionAdapter streaming', () => {
   it('returns the untouched body stream and strict headers', async () => {
     const bytes = new Uint8Array([0, 1, 2, 127, 128, 255]);
+    const cancel = vi.fn();
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(bytes, {
-        status: 200,
-        statusText: 'Private Upstream Detail',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Disposition': 'attachment; filename="subscription.txt"',
-          'subscription-userinfo': 'upload=1; download=2; total=3; expire=4',
-          'profile-update-interval': '24',
-          'profile-title': 'base64:VGVzdA==',
-          'profile-web-page-url': 'https://private.example/dashboard',
-          'Set-Cookie': 'secret=session',
-          Server: 'nginx',
-          'X-Powered-By': 'PHP',
-          'X-V2Board-Internal': 'private',
-        },
-      })
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+          cancel,
+        }),
+        {
+          status: 200,
+          statusText: 'Private Upstream Detail',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': 'attachment; filename="subscription.txt"',
+            'subscription-userinfo': 'upload=1; download=2; total=3; expire=4',
+            'profile-update-interval': '24',
+            'profile-title': 'base64:VGVzdA==',
+            'profile-web-page-url': 'https://private.example/dashboard',
+            'Set-Cookie': 'secret=session',
+            Server: 'nginx',
+            'X-Powered-By': 'PHP',
+            'X-V2Board-Internal': 'private',
+          },
+        }
+      )
     );
 
     const response = await createAdapter(fetcher).subscriptionContent(
@@ -253,7 +278,9 @@ describe('V2BoardSubscriptionAdapter streaming', () => {
       'Clash.Meta/1.0'
     );
 
+    expect(cancel).not.toHaveBeenCalled();
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(cancel).not.toHaveBeenCalled();
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
     expect(response.headers.get('content-disposition')).toContain(
       'subscription.txt'
@@ -285,8 +312,12 @@ describe('V2BoardSubscriptionAdapter streaming', () => {
     expect((await response.arrayBuffer()).byteLength).toBe(0);
   });
 
-  it('normalizes unavailable credentials without reading the body', async () => {
-    const response = new Response('<h1>token is error</h1>', { status: 403 });
+  it.each([
+    [403, V2BoardSubscriptionUnavailableError],
+    [500, V2BoardUpstreamError],
+  ])('cancels an unused upstream HTTP %s body', async (status, ErrorType) => {
+    const cancel = vi.fn();
+    const response = responseWithCancellableBody(status, cancel);
     const text = vi.spyOn(response, 'text');
     const adapter = createAdapter(
       vi.fn<typeof fetch>().mockResolvedValue(response)
@@ -294,9 +325,30 @@ describe('V2BoardSubscriptionAdapter streaming', () => {
 
     await expect(
       adapter.subscriptionContent('opaque_token-123')
-    ).rejects.toBeInstanceOf(V2BoardSubscriptionUnavailableError);
+    ).rejects.toBeInstanceOf(ErrorType);
+    expect(cancel).toHaveBeenCalledOnce();
     expect(text).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [403, V2BoardSubscriptionUnavailableError],
+    [500, V2BoardUpstreamError],
+  ])(
+    'preserves HTTP %s classification when cancellation fails',
+    async (status, ErrorType) => {
+      const cancel = vi.fn().mockRejectedValue(new Error('cancel failed'));
+      const adapter = createAdapter(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          responseWithCancellableBody(status, cancel)
+        )
+      );
+
+      await expect(
+        adapter.subscriptionContent('opaque_token-123')
+      ).rejects.toBeInstanceOf(ErrorType);
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  );
 
   it('normalizes upstream failures and timeouts', async () => {
     const failed = createAdapter(
