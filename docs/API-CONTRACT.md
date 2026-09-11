@@ -2,7 +2,7 @@
 
 公网暴露在 `/api/v1/...`，完全与后端 V2Board 路径解耦。
 
-## 核心 API 矩阵 v0.1
+## v1 冻结 API 矩阵
 
 | Public Contract                        | Auth           | V2Board Adapter Target          |
 | -------------------------------------- | -------------- | ------------------------------- |
@@ -23,7 +23,6 @@
 | `POST /api/v1/orders/{id}/cancel`      | Yes            | `user/order/cancel`             |
 | `GET /api/v1/billing/methods`          | Yes            | `user/order/getPaymentMethod`   |
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
-| `GET /api/v1/access`                   | Yes            | `user/getSubscribe`             |
 | `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
@@ -39,7 +38,6 @@
 | `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
 | `GET /api/v1/referrals/commissions`    | Yes            | `user/invite/details`           |
-| `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
 ## Phase 2A 已实现契约
 
@@ -59,7 +57,7 @@ Request：
 }
 ```
 
-`email` 必填且必须是有效邮箱格式；`password` 必填，长度为 8 至 1024 个字符。
+`email` 必填、必须是有效邮箱格式且 trim 后长度不超过 254 个字符；`password` 必填，长度为 8 至 1024 个字符。请求 schema 为 strict，额外字段会被拒绝。
 
 Success：
 
@@ -1326,3 +1324,17 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Gateway 不提供 commission transfer、withdrawal、balance mutation、`user/transfer` 或 `user/ticket/withdraw`。
+
+## Phase 2L v1 Contract Freeze
+
+solution v1 Public Contract 已冻结为本文件顶部矩阵中的 32 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+
+v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
+
+以下为明确且永久的 solution Non-goals：
+
+- **Telegram**：不提供 bind、unbind、Telegram login 或 Telegram Public API。V2Board 内部可能产生的管理员 Telegram notification side effect 不属于 solution Public Contract，也不是 solution dependency。
+- **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
+- **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
+
+Active Session、Gift Card、Quick Login、commission transfer、commission withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 solution v1。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。

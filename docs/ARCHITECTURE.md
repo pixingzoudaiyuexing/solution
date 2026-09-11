@@ -16,7 +16,8 @@ Client Application
 │ ├─ Routing                           │
 │ ├─ Validation                        │
 │ ├─ CORS                              │
-│ ├─ 速率限制                        │
+│ ├─ Authorization                     │
+│ ├─ Controlled Header Forwarding      │
 │ ├─ Error Normalization               │
 │ └─ Public Contract                   │
 │                  │                   │
@@ -36,6 +37,14 @@ Client Application
 
 ## 网络与安全模型
 - **无状态**: 不使用 KV/D1/Durable Objects 存储业务数据。
-- **认证边界**: Gateway 原样传递 `auth_data`，由 V2Board 完成 Token 验证，不自建 Session。
+- **认证边界**: Gateway 将 V2Board `auth_data` 视为 opaque credential，通过 Public Bearer Contract 接收并受控转发，由 V2Board 完成验证；Gateway 不解析 Token、不自建 Session。
 - **Origin 暴露**: V2Board 保持公网可达（满足 Admin / Node / Payment Provider 直连需求）。Gateway 仅通过 DTO 层提供 API 抽象与后端隐藏，不实施强制网络隔离（Mandatory Access Control）。
 - **Callback 路由**: 支付回调直接进入 V2Board 域名，不经过 Gateway。
+- **速率限制**: solution 当前没有 Gateway rate limiter、WAF、CAPTCHA 或 challenge service。Account Lifecycle 仅提供 provider-neutral `challengeToken`，Adapter 按官方 V2Board 实现映射为 `recaptcha_data`；实际验证和限流由 V2Board 持有。
+- **Observability 与 URL credential**: subscription access 使用 URL credential。Cloudflare persistent observability 保持 `redact_query_string=true`，并设置 `invocation_logs=false`；application code 不主动记录 token。Cloudflare real-time Tail 是可能包含完整 request URL/query credential 的特权运维接口，拥有 Workers Tail Read 或 Workers Scripts Write 的主体必须视为 trusted privileged operator。production 不向不可信人员授予这些权限，也不长期保存或公开分享 Tail 输出；不因该平台特性改变 subscription Public Contract。
+
+## v1 永久 Non-goals
+
+- Telegram bind/unbind/login/Public API；V2Board 内部管理员通知 side effect 不属于 solution dependency。
+- Knowledge / 知识库 list/detail/content transformation，以及其中的 subscription URL/token replacement。
+- Multi-level commission distribution；所有部署必须保持 `commission_distribution_enable=0`，不支持 fractional pending commission。

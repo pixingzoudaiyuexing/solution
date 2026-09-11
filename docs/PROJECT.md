@@ -11,7 +11,17 @@
 - 保持 Gateway 无状态；V2Board 可以继续公网可达，不要求 Cloudflare Tunnel、Access 或强制网络隔离。
 
 ## 当前实现状态
-当前仓库已实现 Phase 2E Account Lifecycle：在既有认证、目录、订单、checkout 与 subscription 能力上，增加邮箱验证码、注册和密码重置 Public Contract。Gateway 只转换 DTO 和规范化错误；V2Board 继续拥有验证码、限流、注册规则、密码更新、session 失效、subscription token 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。refund、reconciliation 和前端集成不在当前实现范围。
+当前状态为 Phase 2L — V1 Contract Freeze / Production Readiness，结论为：
+
+```text
+V1 CONTRACT FROZEN
+```
+
+真实 source route tree 冻结 32 个 `/api/v1` Public routes，覆盖 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
+
+Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
+
+Telegram、Knowledge / 知识库和 multi-level commission distribution 是明确且永久的 Non-goals。多级分销部署必须保持 `commission_distribution_enable=0`。Active Session、Gift Card、Quick Login、commission transfer/withdrawal、ticket withdraw、`newPeriod` 和 `resetSecurity` 不属于 v1。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
@@ -26,6 +36,6 @@
   - `routes/`: 公网 API 路由处理
   - `adapters/v2board/`: 专门与 V2Board 交互的防腐层
   - `http/`: CORS, Header 和 Request/Response 工具
-  - `security/`: 安全与限速
+  - `security/`: Authorization、CORS、URL、User-Agent 与 subscription 安全策略
 - `test/`: 单元与集成测试
 - `docs/`: 架构与设计文档
