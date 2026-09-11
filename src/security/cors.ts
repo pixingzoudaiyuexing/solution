@@ -68,7 +68,7 @@ export const strictCors: MiddlewareHandler<{ Bindings: Env }> = async (c, next) 
     c.header('Access-Control-Allow-Credentials', 'true');
 
     if (c.req.method === 'OPTIONS') {
-      c.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      c.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
       c.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
       c.header('Access-Control-Max-Age', '86400');
     }

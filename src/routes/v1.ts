@@ -31,13 +31,13 @@ import { noticesRouter } from './v1/notices';
 import { trafficRouter } from './v1/traffic';
 import { referralsRouter } from './v1/referrals';
 
+const emailSchema = z.string().trim().email().max(254);
 const loginRequestSchema = z
   .object({
-    email: z.string().trim().email(),
+    email: emailSchema,
     password: z.string().min(8).max(1024),
   })
   .strict();
-const emailSchema = z.string().trim().email().max(254);
 const passwordSchema = z.string().min(8).max(64);
 const emailCodeSchema = z.string().regex(/^\d{6}$/);
 const challengeTokenSchema = z.string().min(1).max(4096);

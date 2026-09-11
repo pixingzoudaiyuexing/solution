@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2024-03-20",
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "redact_query_string": true
   },
   "placement": {
     "mode": "smart"

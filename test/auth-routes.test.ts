@@ -59,11 +59,61 @@ describe('POST /api/v1/auth/login', () => {
     expect(upstreamFetch).toHaveBeenCalledOnce();
   });
 
+  it('accepts a valid email at the 254-character boundary', async () => {
+    const email = `${'a'.repeat(242)}@example.com`;
+    const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: { auth_data: 'opaque-token' } })
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.request(
+      '/api/v1/auth/login',
+      {
+        method: 'POST',
+        headers: requestHeaders(),
+        body: JSON.stringify({ email, password: 'password123' }),
+      },
+      env
+    );
+
+    expect(email).toHaveLength(254);
+    expect(response.status).toBe(200);
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a valid-format 255-character email before upstream', async () => {
+    const email = `${'a'.repeat(243)}@example.com`;
+    const upstreamFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.request(
+      '/api/v1/auth/login',
+      {
+        method: 'POST',
+        headers: requestHeaders(),
+        body: JSON.stringify({ email, password: 'password123' }),
+      },
+      env
+    );
+
+    expect(email).toHaveLength(255);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['missing email', { password: 'password123' }],
     ['missing password', { email: 'user@example.com' }],
     ['invalid email format', { email: 'not-an-email', password: 'password123' }],
     ['short password', { email: 'user@example.com', password: 'short' }],
+    ['long password', { email: 'user@example.com', password: 'x'.repeat(1025) }],
+    [
+      'unknown field',
+      { email: 'user@example.com', password: 'password123', remember: true },
+    ],
   ])('rejects %s without contacting V2Board', async (_case, body) => {
     const upstreamFetch = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', upstreamFetch);

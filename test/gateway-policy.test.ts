@@ -8,6 +8,77 @@ const env = {
 };
 
 describe('gateway HTTP policy', () => {
+  it('allows PATCH preflight from an exact configured origin', async () => {
+    const response = await app.request(
+      '/api/v1/me/preferences',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://app.example',
+          'Access-Control-Request-Method': 'PATCH',
+          'Access-Control-Request-Headers': 'authorization,content-type',
+        },
+      },
+      env
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe(
+      'https://app.example'
+    );
+    expect(response.headers.get('access-control-allow-methods')).toContain(
+      'PATCH'
+    );
+    expect(response.headers.get('access-control-allow-headers')).toContain(
+      'Content-Type'
+    );
+    expect(response.headers.get('access-control-allow-headers')).toContain(
+      'Authorization'
+    );
+    expect(response.headers.get('access-control-allow-credentials')).toBe(
+      'true'
+    );
+    expect(response.headers.get('vary')).toContain('Origin');
+  });
+
+  it('does not allow PATCH preflight from an unconfigured origin', async () => {
+    const response = await app.request(
+      '/api/v1/me/preferences',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://attacker.example',
+          'Access-Control-Request-Method': 'PATCH',
+          'Access-Control-Request-Headers': 'authorization,content-type',
+        },
+      },
+      env
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.has('access-control-allow-origin')).toBe(false);
+    expect(response.headers.has('access-control-allow-methods')).toBe(false);
+    expect(response.headers.has('access-control-allow-headers')).toBe(false);
+    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
+  });
+
+  it.each(['GET', 'POST'])('keeps %s preflight allowed', async (method) => {
+    const response = await app.request(
+      '/api/v1/not-implemented',
+      {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://app.example',
+          'Access-Control-Request-Method': method,
+        },
+      },
+      env
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-methods')).toContain(method);
+  });
+
   it('allows only an exact configured frontend origin', async () => {
     const allowed = await app.request(
       '/api/v1/not-implemented',
