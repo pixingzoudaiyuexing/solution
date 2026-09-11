@@ -18,6 +18,7 @@ import {
   V2BoardPaymentCreateError,
   V2BoardPaymentMethodUnavailableError,
   V2BoardRateLimitedError,
+  V2BoardReferralCodeLimitError,
   V2BoardRegistrationUnavailableError,
   V2BoardTicketCloseError,
   V2BoardTicketCreateError,
@@ -90,6 +91,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('RATE_LIMITED', 'Too many requests', id),
       429
+    );
+  }
+
+  if (err instanceof V2BoardReferralCodeLimitError) {
+    return c.json(
+      publicErrorResponse(
+        'REFERRAL_CODE_LIMIT_REACHED',
+        'Referral code limit reached',
+        id
+      ),
+      409
     );
   }
 

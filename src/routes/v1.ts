@@ -29,6 +29,7 @@ import {
 import { ticketsRouter } from './v1/tickets';
 import { noticesRouter } from './v1/notices';
 import { trafficRouter } from './v1/traffic';
+import { referralsRouter } from './v1/referrals';
 
 const loginRequestSchema = z
   .object({
@@ -186,5 +187,6 @@ v1Router.route('/access', subscriptionAccessRouter);
 v1Router.route('/tickets', ticketsRouter);
 v1Router.route('/notices', noticesRouter);
 v1Router.route('/traffic', trafficRouter);
+v1Router.route('/referrals', referralsRouter);
 
 export { v1Router };

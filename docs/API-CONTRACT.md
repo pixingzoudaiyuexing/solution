@@ -36,6 +36,9 @@
 | `GET /api/v1/notices`                  | Yes            | `user/notice/fetch`             |
 | `GET /api/v1/notices/{id}`             | Yes            | `user/notice/fetch?id={id}`     |
 | `GET /api/v1/traffic/logs`             | Yes            | `user/stat/getTrafficLog`       |
+| `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
+| `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
+| `GET /api/v1/referrals/commissions`    | Yes            | `user/invite/details`           |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
 ## Phase 2A 已实现契约
@@ -1191,3 +1194,129 @@ Traffic History 当前只反映官方 V2Board 固定查询的本月 1 日至当�
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 Public Notice DTO 不包含 raw Model、`show` 或内部 flags；Public Traffic DTO 不包含 `user_id` 或内部数据库对象。Gateway 不增加 Notice cache、Traffic aggregation state、KV、D1、Durable Objects 或 Redis。
+
+## Phase 2K Referrals And Commission Overview
+
+以下接口均要求 `Authorization: Bearer <opaque-token>`。V2Board 持有邀请码生成/上限、邀请关系、佣金资格、比例、计算、结算和余额；Gateway 只验证并映射官方响应，不保存 referral/commission state，不查询后预判资格，也不计算佣金。
+
+### Referral Overview
+
+```http
+GET /api/v1/referrals
+```
+
+Adapter 调用 `GET user/invite/fetch`，把官方 positional `stat` 数组转换为具名字段：
+
+| Official position | Public field |
+| --- | --- |
+| `stat[0]` | `registeredUsers` |
+| `stat[1]` | `earnedCommissionMinor` |
+| `stat[2]` | `pendingCommissionMinor` |
+| `stat[3]` | `commissionRatePercent` |
+| `stat[4]` | `availableCommissionMinor` |
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "codes": [
+      {
+        "code": "AbCd1234",
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "stats": {
+      "registeredUsers": 10,
+      "earnedCommissionMinor": 1200,
+      "pendingCommissionMinor": 300,
+      "commissionRatePercent": 30,
+      "availableCommissionMinor": 900
+    }
+  },
+  "requestId": "request-id"
+}
+```
+
+官方邀请码由 `Helper::randomChar(8)` 生成字母数字字符串，数据库上限为 32；Gateway 将 code 作为所属用户需要分享的 credential-like value 返回，但不记录日志。Public Invite Code DTO 只包含 `code/createdAt`，不包含内部 `id`、`user_id`、`status`、`pv` 或 raw Eloquent Model。
+
+`stat` 必须恰好包含 5 个值。用户数量和金额必须是非负 safe integers，commission rate 必须是 0 至 100 的整数。缺项、额外项、字符串、负数、浮点数或超出安全范围均 fail closed 为 `UPSTREAM_ERROR`。
+
+### Create Referral Code
+
+```http
+POST /api/v1/referrals/codes
+```
+
+Public 请求无 body。官方 V2Board 的创建 route 使用 GET，因此 Adapter 只发出一次：
+
+```http
+GET user/invite/save
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": { "created": true },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不预查现有 code 数量、不复制 `invite_gen_limit`、不生成 code，也不为了猜测新 code 再组合本地状态。Client 如需刷新列表，应重新调用 `GET /api/v1/referrals`。官方 exact error `The maximum number of creations has been reached` 及其官方中文翻译映射为 `409 REFERRAL_CODE_LIMIT_REACHED`，不透传 raw message；部分字符串匹配不会被分类。
+
+### Commission History
+
+```http
+GET /api/v1/referrals/commissions?page=1&pageSize=20
+```
+
+`page` 默认为 1，必须是最大 `2147483647` 的正整数；`pageSize` 默认为 20，范围为 10 至 100。较小值被 Public Contract 拒绝，因为官方 V2Board 会把 `page_size < 10` 强制改为 10。额外或重复 query 参数同样被拒绝。
+
+Adapter 映射为：
+
+```http
+GET user/invite/details?current=1&page_size=20
+```
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "orderAmountMinor": 1000,
+        "commissionAmountMinor": 100,
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "total": 1
+  },
+  "requestId": "request-id"
+}
+```
+
+官方 `order_amount`、`get_amount`、Order `total_amount/commission_balance` 和 User `commission_balance` 均为整数最小货币单位；支付实现只在 Provider 展示金额边界除以 100。Gateway 因此原样映射为 `orderAmountMinor`、`commissionAmountMinor` 和 stats 的 `*CommissionMinor`，不除以 100、不换汇、不猜币种。`commission_rate` 是 0 至 100 的整数百分数，官方用 `/100` 参与自身计算；Gateway 原样映射为 `commissionRatePercent`，例如 30 表示 30%，不转换成 0.3。
+
+CommissionLog `trade_no` 可能属于被邀请用户的订单，Public DTO 绝不返回它，也不返回 CommissionLog `id`、`user_id`、`invite_user_id` 或其他订单字段。`commissionAmountMinor` 只能来自官方 `get_amount`，不得通过订单金额乘比例重算。
+
+官方多级分销开启时，`pending commission` 源码会对最小单位整数做比例乘法。如果官方返回 fractional minor value，Gateway 不舍入或截断，而是 fail closed 为 `UPSTREAM_ERROR`；staging 当前多级分销关闭，实际 stats 为整数。
+
+### Phase 2K Errors
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | commission page/pageSize、重复或额外 query 参数无效 |
+| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 credential |
+| 409 | `REFERRAL_CODE_LIMIT_REACHED` | V2Board exact error 表明邀请码创建数量达到上限 |
+| 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+所有响应使用 `Cache-Control: no-store`。邀请码、佣金记录、Bearer token 和 raw upstream referral data 不进入日志。Gateway 不提供 commission transfer、withdrawal、balance mutation、`user/transfer` 或 `user/ticket/withdraw`。

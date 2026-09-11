@@ -179,3 +179,10 @@ export class V2BoardNoticeNotFoundError extends Error {
     this.name = 'V2BoardNoticeNotFoundError';
   }
 }
+
+export class V2BoardReferralCodeLimitError extends Error {
+  constructor() {
+    super('V2Board referral code limit reached');
+    this.name = 'V2BoardReferralCodeLimitError';
+  }
+}
