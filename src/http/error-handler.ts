@@ -18,6 +18,11 @@ import {
   V2BoardPaymentMethodUnavailableError,
   V2BoardRateLimitedError,
   V2BoardRegistrationUnavailableError,
+  V2BoardTicketCloseError,
+  V2BoardTicketCreateError,
+  V2BoardTicketNotFoundError,
+  V2BoardTicketReplyError,
+  V2BoardTicketUnavailableError,
   V2BoardPromotionInvalidError,
   V2BoardPreferencesUpdateError,
   V2BoardTimeoutError,
@@ -199,6 +204,41 @@ export const errorHandler: ErrorHandler = (err, c) => {
         'Unable to create payment',
         id
       ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardTicketNotFoundError) {
+    return c.json(
+      publicErrorResponse('TICKET_NOT_FOUND', 'Ticket not found', id),
+      404
+    );
+  }
+
+  if (err instanceof V2BoardTicketUnavailableError) {
+    return c.json(
+      publicErrorResponse('TICKET_UNAVAILABLE', 'Ticket unavailable', id),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardTicketCreateError) {
+    return c.json(
+      publicErrorResponse('TICKET_CREATE_FAILED', 'Unable to create ticket', id),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardTicketReplyError) {
+    return c.json(
+      publicErrorResponse('TICKET_REPLY_FAILED', 'Unable to reply to ticket', id),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardTicketCloseError) {
+    return c.json(
+      publicErrorResponse('TICKET_CLOSE_FAILED', 'Unable to close ticket', id),
       502
     );
   }

@@ -137,3 +137,38 @@ export class V2BoardSubscriptionUnavailableError extends Error {
     this.name = 'V2BoardSubscriptionUnavailableError';
   }
 }
+
+export class V2BoardTicketNotFoundError extends Error {
+  constructor() {
+    super('V2Board ticket not found');
+    this.name = 'V2BoardTicketNotFoundError';
+  }
+}
+
+export class V2BoardTicketUnavailableError extends Error {
+  constructor() {
+    super('V2Board ticket creation unavailable');
+    this.name = 'V2BoardTicketUnavailableError';
+  }
+}
+
+export class V2BoardTicketCreateError extends Error {
+  constructor() {
+    super('V2Board ticket creation failed');
+    this.name = 'V2BoardTicketCreateError';
+  }
+}
+
+export class V2BoardTicketReplyError extends Error {
+  constructor() {
+    super('V2Board ticket reply failed');
+    this.name = 'V2BoardTicketReplyError';
+  }
+}
+
+export class V2BoardTicketCloseError extends Error {
+  constructor() {
+    super('V2Board ticket close failed');
+    this.name = 'V2BoardTicketCloseError';
+  }
+}

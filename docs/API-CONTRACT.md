@@ -28,6 +28,11 @@
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
+| `GET /api/v1/tickets`                  | Yes            | `user/ticket/fetch`             |
+| `GET /api/v1/tickets/{id}`             | Yes            | `user/ticket/fetch?id={id}`     |
+| `POST /api/v1/tickets`                 | Yes            | `user/ticket/save`              |
+| `POST /api/v1/tickets/{id}/reply`      | Yes            | `user/ticket/reply`             |
+| `POST /api/v1/tickets/{id}/close`      | Yes            | `user/ticket/close`             |
 | `GET /r/v1/{credential}`               | URL credential | client subscribe                |
 
 ## Phase 2A 已实现契约
@@ -910,3 +915,158 @@ Adapter 只调用官方 `GET user/getSubscribe`。Overview 是当前套餐、流
 `renewalAllowed` 只表达上游接口返回的续期配置，不保证某次 renewal 一定成功。Gateway 不提供 remaining bytes、used percent、over-quota、剩余天数、expired boolean或 grace period等派生字段。
 
 Public response 不包含 V2Board `token`、`subscribe_url`、`uuid`、email、完整 plan、`group_id`、内部 user ID 或 server配置。上游缺少必填字段、plan 与 `plan_id` 不一致、负数/浮点/超出安全整数、malformed timestamp/plan/device/reset/renewal flag均 fail closed为 `502 UPSTREAM_ERROR`；认证和 timeout继续使用现有 `AUTH_FAILED` 与 `UPSTREAM_TIMEOUT`。
+
+## Phase 2I Support Tickets
+
+以下接口均要求 `Authorization: Bearer <opaque-token>`。Gateway 不保存工单状态、不判断用户能否创建/回复工单，也不复制 V2Board 的通知逻辑。所有工单记录、消息、状态、资格判断和通知副作用均由官方 V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88` 持有。
+
+固定枚举映射：
+
+| Official V2Board | Public Contract |
+| --- | --- |
+| `status=0` | `open` |
+| `status=1` | `closed` |
+| `level=0` | `low` |
+| `level=1` | `normal` |
+| `level=2` | `high` |
+
+Ticket ID 使用十进制正整数字符串，最大值为 `2147483647`。`subject` 长度为 1 至 255 个字符；create/reply 的 `message` 长度为 1 至 10000 个字符。请求 schema 为 strict，额外字段会被拒绝。
+
+### Ticket List
+
+```http
+GET /api/v1/tickets
+```
+
+Adapter 调用 `GET user/ticket/fetch`。Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "tickets": [
+      {
+        "id": "7",
+        "subject": "Connection issue",
+        "priority": "normal",
+        "status": "open",
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-02T00:00:00.000Z"
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+### Ticket Detail
+
+```http
+GET /api/v1/tickets/{id}
+```
+
+Adapter 调用 `GET user/ticket/fetch?id={id}`。消息仅映射受控字段：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "7",
+    "subject": "Connection issue",
+    "priority": "normal",
+    "status": "open",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-02T00:00:00.000Z",
+    "messages": [
+      {
+        "id": "11",
+        "content": "Message text",
+        "fromMe": true,
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+V2Board `user_id`、`ticket_id`、staff/admin ID、`reply_status` 和其他 Model 字段不会进入 Public DTO。Gateway 将 `subject`/`message` 保持为普通字符串，不渲染 HTML、不执行 Markdown，也不写入日志；最终展示时的 XSS escaping 由 Consumer renderer 负责。
+
+### Create Ticket
+
+```http
+POST /api/v1/tickets
+Content-Type: application/json
+```
+
+```json
+{
+  "subject": "Connection issue",
+  "priority": "normal",
+  "message": "Please investigate."
+}
+```
+
+Adapter 将 `priority` 映射为 `level` 并调用 `POST user/ticket/save`。成功仅返回 V2Board 可以证明的结果，不伪造 ticket ID：
+
+```json
+{
+  "ok": true,
+  "data": { "created": true },
+  "requestId": "request-id"
+}
+```
+
+### Reply To Ticket
+
+```http
+POST /api/v1/tickets/{id}/reply
+Content-Type: application/json
+```
+
+```json
+{ "message": "Reply text" }
+```
+
+Adapter 只向 `POST user/ticket/reply` 发送数字 `id` 与 `message`。V2Board 负责存在性、ownership、closed 状态和回复顺序；Gateway 不进行预查询。
+
+```json
+{
+  "ok": true,
+  "data": { "replied": true },
+  "requestId": "request-id"
+}
+```
+
+### Close Ticket
+
+```http
+POST /api/v1/tickets/{id}/close
+```
+
+请求无 body。Adapter 只向 `POST user/ticket/close` 发送数字 `id`；ownership、存在性和状态持久化由 V2Board 负责。
+
+```json
+{
+  "ok": true,
+  "data": { "closed": true },
+  "requestId": "request-id"
+}
+```
+
+### Ticket Errors
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | ID、subject、priority、message 或 strict body 无效 |
+| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 credential |
+| 404 | `TICKET_NOT_FOUND` | V2Board 404 或 exact error 表明工单不存在 |
+| 409 | `TICKET_UNAVAILABLE` | V2Board exact error 表明创建资格不满足或已有未处理工单 |
+| 409 | `TICKET_REPLY_FAILED` | V2Board exact error 表明工单不可回复或回复失败 |
+| 502 | `TICKET_CREATE_FAILED` | V2Board exact error 表明创建失败 |
+| 502 | `TICKET_CLOSE_FAILED` | V2Board exact error 表明关闭失败 |
+| 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+业务错误只按官方 `99f8526` 的完整 exact message 分类，不使用 `includes` 等模糊匹配，不返回 raw V2Board/Laravel message。所有响应使用 `Cache-Control: no-store`。`user/ticket/withdraw` 是佣金提现接口，不属于 Support Tickets，未实现。
