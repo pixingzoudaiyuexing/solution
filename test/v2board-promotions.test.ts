@@ -59,11 +59,19 @@ describe('V2BoardPromotionsAdapter', () => {
 
   it.each([
     'Invalid coupon',
+    '优惠券无效',
     'This coupon is no longer available',
+    '优惠券已无可用次数',
     'This coupon has not yet started',
+    '优惠券还未到可用时间',
     'This coupon has expired',
+    '优惠券已过期',
     'The coupon code cannot be used for this subscription',
+    '该订阅无法使用此优惠码',
     'The coupon code cannot be used for this period',
+    '此优惠券无法用于该付款周期',
+    'The coupon can only be used 2 per person',
+    '该优惠券每人只能用 2 次',
   ])('maps exact coupon rejection: %s', async (message) => {
     const adapter = createAdapter(
       vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
@@ -78,6 +86,19 @@ describe('V2BoardPromotionsAdapter', () => {
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({ message: 'Invalid coupon: PROMO123' }, 500)
       )
+    );
+    await expect(
+      adapter.validatePromotion('opaque-token', { code: 'PROMO123', productId: 9 })
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
+  });
+
+  it.each([
+    'The coupon can only be used two per person',
+    'The coupon can only be used 2 per person extra',
+    '该优惠券每人只能用 2 次 extra',
+  ])('does not classify malformed dynamic rejection: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
     );
     await expect(
       adapter.validatePromotion('opaque-token', { code: 'PROMO123', productId: 9 })

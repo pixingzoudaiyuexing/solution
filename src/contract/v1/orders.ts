@@ -21,6 +21,7 @@ export const ORDER_ID_PATTERN = /^[A-Za-z0-9_-]{1,36}$/;
 export interface CreateOrderRequest {
   productId: string;
   billingPeriod: OrderBillingPeriod;
+  promotionCode?: string;
 }
 
 export interface CreatedOrder {

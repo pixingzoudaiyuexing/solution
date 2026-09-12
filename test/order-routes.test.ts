@@ -220,6 +220,47 @@ describe('POST /api/v1/orders', () => {
     });
   });
 
+  it('applies a trimmed promotion through one authoritative order/save call', async () => {
+    const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: 'order-promoted', discount_amount: 500 })
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.request(
+      '/api/v1/orders',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer opaque-token',
+          'Content-Type': 'application/json',
+          'cf-ray': 'request-id',
+        },
+        body: JSON.stringify({
+          productId: '7',
+          billingPeriod: 'month',
+          promotionCode: '  PROMO123  ',
+        }),
+      },
+      env
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: { id: 'order-promoted' },
+      requestId: 'request-id',
+    });
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+    expect(upstreamFetch.mock.calls[0][0]).toBe(
+      'https://private.example/api/v1/user/order/save'
+    );
+    expect(JSON.parse(String(upstreamFetch.mock.calls[0][1]?.body))).toEqual({
+      plan_id: 7,
+      period: 'month_price',
+      coupon_code: 'PROMO123',
+    });
+  });
+
   it.each([
     ['missing productId', { billingPeriod: 'month' }],
     ['invalid productId', { productId: 'not-an-id', billingPeriod: 'month' }],
@@ -229,6 +270,32 @@ describe('POST /api/v1/orders', () => {
     [
       'extra payment field',
       { productId: '7', billingPeriod: 'month', paymentMethod: 'private' },
+    ],
+    ['empty promotion', { productId: '7', billingPeriod: 'month', promotionCode: '' }],
+    [
+      'whitespace promotion',
+      { productId: '7', billingPeriod: 'month', promotionCode: '   ' },
+    ],
+    [
+      'long promotion',
+      { productId: '7', billingPeriod: 'month', promotionCode: 'x'.repeat(256) },
+    ],
+    [
+      'upstream coupon_code',
+      { productId: '7', billingPeriod: 'month', coupon_code: 'PROMO123' },
+    ],
+    [
+      'couponCode alias',
+      { productId: '7', billingPeriod: 'month', couponCode: 'PROMO123' },
+    ],
+    ['code alias', { productId: '7', billingPeriod: 'month', code: 'PROMO123' }],
+    ['discount field', { productId: '7', billingPeriod: 'month', discount: 1 }],
+    ['balance field', { productId: '7', billingPeriod: 'month', balance: 1 }],
+    ['amount field', { productId: '7', billingPeriod: 'month', amount: 1 }],
+    ['price field', { productId: '7', billingPeriod: 'month', price: 1 }],
+    [
+      'totalAmount field',
+      { productId: '7', billingPeriod: 'month', totalAmount: 1 },
     ],
   ])('rejects %s without contacting V2Board', async (_case, body) => {
     const upstreamFetch = vi.fn<typeof fetch>();
@@ -335,6 +402,80 @@ describe('POST /api/v1/orders', () => {
     expect(body).not.toContain('Current product is sold out');
   });
 
+  it.each([
+    'Invalid coupon',
+    '优惠券无效',
+    'This coupon is no longer available',
+    'This coupon has not yet started',
+    'This coupon has expired',
+    'The coupon code cannot be used for this subscription',
+    'The coupon code cannot be used for this period',
+    'The coupon can only be used 2 per person',
+    '该优惠券每人只能用 2 次',
+  ])('maps authoritative coupon rejection to PROMOTION_INVALID: %s', async (message) => {
+    const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ message, coupon: 'private-coupon-model' }, 500)
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const response = await app.request(
+      '/api/v1/orders',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer opaque-token',
+          'Content-Type': 'application/json',
+          'cf-ray': 'request-id',
+        },
+        body: JSON.stringify({
+          productId: '7',
+          billingPeriod: 'month',
+          promotionCode: 'PROMO123',
+        }),
+      },
+      env
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(422);
+    expect(text).toContain('PROMOTION_INVALID');
+    expect(text).not.toContain(message);
+    expect(text).not.toContain('private-coupon-model');
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(['Coupon failed', '优惠券使用失败'])(
+    'keeps operational %s as ORDER_CREATE_FAILED',
+    async (message) => {
+      const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message }, 500)
+      );
+      vi.stubGlobal('fetch', upstreamFetch);
+
+      const response = await app.request(
+        '/api/v1/orders',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer opaque-token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            productId: '7',
+            billingPeriod: 'month',
+            promotionCode: 'PROMO123',
+          }),
+        },
+        env
+      );
+      const text = await response.text();
+      expect(response.status).toBe(502);
+      expect(text).toContain('ORDER_CREATE_FAILED');
+      expect(text).not.toContain(message);
+      expect(upstreamFetch).toHaveBeenCalledOnce();
+    }
+  );
+
   it('maps an upstream timeout without retrying order creation', async () => {
     const upstreamFetch = vi.fn<typeof fetch>().mockRejectedValue(
       new DOMException('The operation timed out', 'TimeoutError')
@@ -364,6 +505,7 @@ describe('POST /api/v1/orders', () => {
 
   it('does not log an order payload, token, or upstream error details', async () => {
     const token = 'sensitive-order-token';
+    const promotionCode = 'SENSITIVE-PROMOTION-CODE';
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.stubGlobal(
       'fetch',
@@ -385,7 +527,11 @@ describe('POST /api/v1/orders', () => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ productId: '7', billingPeriod: 'month' }),
+        body: JSON.stringify({
+          productId: '7',
+          billingPeriod: 'month',
+          promotionCode,
+        }),
       },
       env
     );
@@ -394,6 +540,7 @@ describe('POST /api/v1/orders', () => {
     expect(error).toHaveBeenCalledOnce();
     const logged = JSON.stringify(error.mock.calls);
     expect(logged).not.toContain(token);
+    expect(logged).not.toContain(promotionCode);
     expect(logged).not.toContain('order-private');
     expect(logged).not.toContain('sensitive-payment-config');
   });

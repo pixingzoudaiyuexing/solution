@@ -98,6 +98,8 @@ describe('POST /api/v1/promotions/validate', () => {
   it.each([
     'Invalid coupon',
     'The coupon code cannot be used for this subscription',
+    'The coupon can only be used 2 per person',
+    '该优惠券每人只能用 2 次',
   ])('normalizes coupon rejection: %s', async (message) => {
     vi.stubGlobal(
       'fetch',

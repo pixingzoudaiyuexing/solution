@@ -258,11 +258,30 @@ Request：
 ```json
 {
   "productId": "7",
-  "billingPeriod": "month"
+  "billingPeriod": "month",
+  "promotionCode": "PROMO123"
 }
 ```
 
-`productId` 是 Products API 返回的字符串 ID。`billingPeriod` 可为 `month`、`quarter`、`halfYear`、`year`、`twoYears`、`threeYears`、`oneTime`；不支持流量重置。
+`productId` 是 Products API 返回的字符串 ID。`billingPeriod` 可为 `month`、`quarter`、`halfYear`、`year`、`twoYears`、`threeYears`、`oneTime`；不支持流量重置。`promotionCode` 可选，trim 后长度为 1 至 255；Public Contract 不接受 `couponCode`、`coupon_code` 或其他别名。
+
+未提供 promotion 时，Adapter 继续只发送：
+
+```json
+{ "plan_id": 7, "period": "month_price" }
+```
+
+提供 promotion 时，只在同一次 `POST user/order/save` 增加：
+
+```json
+{
+  "plan_id": 7,
+  "period": "month_price",
+  "coupon_code": "PROMO123"
+}
+```
+
+Gateway 不会先调用 `user/coupon/check`。Order Create 是最终权威：V2Board 在 transaction 内重新检查 coupon 存在性、状态、起止时间、全局和 per-user 次数、套餐及 billing period 限制，并负责 coupon usage、`coupon_id`、discount、VIP discount、套餐变更折抵、现有余额抵扣、最终金额和 Order 持久化。
 
 Success（HTTP 201）：
 
@@ -278,7 +297,7 @@ Success（HTTP 201）：
 
 V2Board 创建接口只返回订单号，因此 Gateway 不伪造金额、状态或时间。完整订单由 Detail API 从 V2Board 重新读取。
 
-Gateway 不接收价格、支付方式、优惠券、余额或其他 V2Board 参数，不负责价格计算、套餐有效性、购买资格或订单状态修改。V2Board 标准 `order/save` 可能按其自身业务规则自动使用用户已有余额；Gateway 不参与该计算，也不保存相关状态。
+Gateway 不接收价格、支付方式、余额或其他 V2Board 内部金额参数，只接受可选的 opaque `promotionCode`。Gateway 不计算、预测或返回 original/final price、discount、VIP discount、balance used 或 coupon usage，也不保存 coupon/order state。完整订单金额继续由 Detail API 从 V2Board 读取。
 
 创建请求如果返回 `UPSTREAM_TIMEOUT`，订单可能已经由 V2Board 创建。Gateway 不自动重试，Client Application 应先重新查询 Orders List，避免重复提交。
 
@@ -306,7 +325,7 @@ Success 使用与 Orders List 相同的单个 Order DTO：
 }
 ```
 
-Payment Provider callback 和 refund 路由仍未实现。Promotion validation 与 subscription 使用各自独立 Public Contract；Order Create 本阶段不接受 `couponCode`。
+Payment Provider callback 仍直接进入 V2Board，solution 不提供 callback proxy；refund route 不在 Public Contract。Order Create 只接受 `promotionCode`，不接受 `couponCode` 或 upstream `coupon_code`。
 
 错误：
 
@@ -315,7 +334,8 @@ Payment Provider callback 和 refund 路由仍未实现。Promotion validation �
 | 401  | `AUTH_REQUIRED`      | 缺少或无法识别 Bearer credential |
 | 401  | `AUTH_FAILED`        | V2Board 拒绝当前 credential |
 | 404  | `ORDER_NOT_FOUND`    | 当前用户的订单不存在 |
-| 502  | `ORDER_CREATE_FAILED` | V2Board 拒绝创建订单 |
+| 422  | `PROMOTION_INVALID` | 提供 promotionCode 且 V2Board 明确拒绝 coupon business rule |
+| 502  | `ORDER_CREATE_FAILED` | V2Board 拒绝创建订单，包括 `Coupon failed` 操作故障 |
 | 502  | `ORDER_QUERY_FAILED` | V2Board 返回可识别的订单查询错误 |
 | 502  | `UPSTREAM_ERROR`     | HTML、无效 JSON 或 malformed order response |
 | 504  | `UPSTREAM_TIMEOUT`   | V2Board 请求超时 |
@@ -757,7 +777,9 @@ Content-Type: application/json
 }
 ```
 
-V2Board 负责 coupon 是否存在、启用状态、有效期、次数、套餐/周期/用户限制和折扣规则。Validation 不创建 Gateway coupon token，也不修改 Order Create；购买时是否提交 coupon code 属于后续独立 contract。
+V2Board 负责 coupon 是否存在、启用状态、有效期、次数、套餐/周期/用户限制和折扣规则。Validation 是下单前 preview，不创建 Gateway coupon token，也不会预留 coupon。由于官方 preview 不接收 billing period，validation success 不保证稍后的 Order Create 成功；`POST /api/v1/orders` 会将 `promotionCode` 映射为 `coupon_code`，由 `user/order/save` 在 transaction 中进行最终验证和应用。
+
+静态 coupon rejection 使用与 Order Create 共享的官方 exact message classifier。唯一动态 per-user limit 只接受官方完整锚定格式，其中次数部分必须是 integer；不使用 `includes`、prefix 或宽泛 regex。`Coupon failed / 优惠券使用失败` 表示 coupon usage/save 操作故障，不归类为用户输入错误，在 Order Create 中保持 `502 ORDER_CREATE_FAILED`。
 
 ### Phase 2F Errors
 

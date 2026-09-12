@@ -16,8 +16,10 @@ import {
   V2BoardOrderNotCancellableError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
+  V2BoardPromotionInvalidError,
   V2BoardUpstreamError,
 } from './errors';
+import { isCouponBusinessRejection } from './coupon-errors';
 
 const timestampSchema = z
   .number()
@@ -157,6 +159,9 @@ export class V2BoardOrdersAdapter extends V2BoardAdapterBase {
       body: JSON.stringify({
         plan_id: Number(request.productId),
         period: PERIOD_MAP[request.billingPeriod],
+        ...(request.promotionCode === undefined
+          ? {}
+          : { coupon_code: request.promotionCode }),
       }),
     });
     this.assertAuthenticatedResponse(response);
@@ -164,6 +169,12 @@ export class V2BoardOrdersAdapter extends V2BoardAdapterBase {
     if (!response.ok) {
       if (!orderErrorSchema.safeParse(payload).success) {
         throw new V2BoardUpstreamError();
+      }
+      if (
+        request.promotionCode !== undefined &&
+        isCouponBusinessRejection(payload)
+      ) {
+        throw new V2BoardPromotionInvalidError();
       }
       throw new V2BoardOrderCreateError();
     }

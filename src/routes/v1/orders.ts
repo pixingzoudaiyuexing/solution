@@ -35,6 +35,7 @@ const createOrderSchema = z
   .object({
     productId: productIdSchema,
     billingPeriod: z.enum(ORDER_BILLING_PERIODS),
+    promotionCode: z.string().trim().min(1).max(255).optional(),
   })
   .strict();
 const orderIdSchema = z.string().regex(ORDER_ID_PATTERN);

@@ -4,6 +4,7 @@ import {
   V2BoardOrderCreateError,
   V2BoardOrderNotFoundError,
   V2BoardOrderQueryError,
+  V2BoardPromotionInvalidError,
   V2BoardTimeoutError,
   V2BoardUpstreamError,
 } from '../src/adapters/v2board/errors';
@@ -300,6 +301,79 @@ describe('V2BoardOrdersAdapter', () => {
       plan_id: 7,
       period,
     });
+  });
+
+  it('maps promotionCode to coupon_code in the single order/save call', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: 'order-with-promotion' })
+    );
+    const adapter = createAdapter(fetcher);
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod: 'month',
+        promotionCode: 'PROMO123',
+      })
+    ).resolves.toEqual({ id: 'order-with-promotion' });
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://private.example/api/v1/user/order/save'
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      plan_id: 7,
+      period: 'month_price',
+      coupon_code: 'PROMO123',
+    });
+  });
+
+  it.each([
+    'Invalid coupon',
+    '优惠券无效',
+    'This coupon is no longer available',
+    '优惠券已无可用次数',
+    'This coupon has not yet started',
+    '优惠券还未到可用时间',
+    'This coupon has expired',
+    '优惠券已过期',
+    'The coupon code cannot be used for this subscription',
+    '该订阅无法使用此优惠码',
+    'The coupon code cannot be used for this period',
+    '此优惠券无法用于该付款周期',
+    'The coupon can only be used 2 per person',
+    '该优惠券每人只能用 2 次',
+  ])('maps exact coupon rejection during order creation: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod: 'month',
+        promotionCode: 'PROMO123',
+      })
+    ).rejects.toBeInstanceOf(V2BoardPromotionInvalidError);
+  });
+
+  it.each([
+    'Coupon failed',
+    '优惠券使用失败',
+    'Invalid coupon: private detail',
+    'The coupon can only be used two per person',
+  ])('keeps coupon operational or non-exact error as order creation failure: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.createOrder('opaque-token', {
+        productId: '7',
+        billingPeriod: 'month',
+        promotionCode: 'PROMO123',
+      })
+    ).rejects.toBeInstanceOf(V2BoardOrderCreateError);
   });
 
   it('maps a JSON create rejection without retaining its details', async () => {
