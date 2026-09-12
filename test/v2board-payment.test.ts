@@ -23,6 +23,9 @@ function createAdapter(fetcher: typeof fetch): V2BoardPaymentAdapter {
   );
 }
 
+const signedTarget =
+  'https://pay.example/submit.php?money=10.00&name=order-001&notify_url=https%3A%2F%2Fprivate.example%2Fapi%2Fv1%2Fguest%2Fpayment%2Fnotify%2FEPay%2F123e4567-e89b-12d3-a456-426614174000&return_url=https%3A%2F%2Fprivate.example%2F%23%2Forder%2Forder-001&out_trade_no=order-001&pid=1000&type=alipay&sign=abc123&sign_type=MD5';
+
 describe('V2BoardPaymentAdapter', () => {
   it('maps payment methods without exposing plugin or merchant fields', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
@@ -97,6 +100,37 @@ describe('V2BoardPaymentAdapter', () => {
       trade_no: 'order-001',
       method: 3,
     });
+  });
+
+  it('preserves an EPay signed redirect containing the hidden callback host', async () => {
+    const adapter = createAdapter(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ type: 1, data: signedTarget }))
+    );
+
+    await expect(
+      adapter.checkout('opaque-token', 'order-001', { paymentMethodId: '3' })
+    ).resolves.toEqual({ type: 'redirect', target: signedTarget });
+  });
+
+  it.each([
+    'https://private.example/payment',
+    'http://pay.example/checkout',
+    'https://localhost/checkout',
+    'https://pay.example/checkout?foo=https%3A%2F%2Fprivate.example%2Fsecret',
+    'https://pay.example/checkout?notify_url=https%3A%2F%2Fprivate.example%2Fsecret',
+    'https://pay.example/checkout?return_url=https%3A%2F%2Fprivate.example%2Fsecret',
+  ])('still rejects unsafe checkout redirect %s', async (target) => {
+    const adapter = createAdapter(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ type: 1, data: target }))
+    );
+
+    await expect(
+      adapter.checkout('opaque-token', 'order-001', { paymentMethodId: '3' })
+    ).rejects.toBeInstanceOf(V2BoardPaymentCreateError);
   });
 
   it.each([

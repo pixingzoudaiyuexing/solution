@@ -143,6 +143,8 @@ describe('POST /api/v1/auth/login', () => {
   it.each([
     'Incorrect email or password',
     'Your account has been suspended',
+    'There are too many password errors, please try again after 30 minutes.',
+    '密码错误次数过多，请 30 分钟后再试',
   ])('maps a known V2Board auth rejection without exposing: %s', async (message) => {
     vi.stubGlobal(
       'fetch',
@@ -171,6 +173,32 @@ describe('POST /api/v1/auth/login', () => {
         requestId: 'request-id',
       },
     });
+  });
+
+  it('does not map a login limit prefix near-miss to AUTH_FAILED', async () => {
+    const message = 'There are too many password errors SOMETHING ELSE';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    const response = await app.request(
+      '/api/v1/auth/login',
+      {
+        method: 'POST',
+        headers: requestHeaders(),
+        body: JSON.stringify({
+          email: 'user@example.com',
+          password: 'password123',
+        }),
+      },
+      env
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.text();
+    expect(body).toContain('UPSTREAM_ERROR');
+    expect(body).not.toContain(message);
   });
 
   it('maps an upstream validation error to the public validation contract', async () => {

@@ -67,9 +67,9 @@ const AUTH_FAILURE_MESSAGES = new Set([
   '邮箱或密码错误',
   '该账户已被停止使用',
 ]);
-const AUTH_FAILURE_PREFIXES = [
-  'there are too many password errors',
-  '密码错误次数过多',
+const AUTH_FAILURE_PATTERNS = [
+  /^there are too many password errors, please try again after \d+ minutes\.$/,
+  /^密码错误次数过多，请 \d+ 分钟后再试$/,
 ];
 
 const RATE_LIMIT_MESSAGES = new Set([
@@ -129,7 +129,7 @@ function isAuthenticationFailure(message: string): boolean {
   const normalized = message.trim().toLowerCase();
   return (
     AUTH_FAILURE_MESSAGES.has(normalized) ||
-    AUTH_FAILURE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    AUTH_FAILURE_PATTERNS.some((pattern) => pattern.test(normalized))
   );
 }
 

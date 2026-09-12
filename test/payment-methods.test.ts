@@ -137,6 +137,31 @@ describe('GET /api/v1/billing/methods', () => {
     });
   });
 
+  it('does not grant signed callback exceptions to payment icons', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 3,
+              name: 'Unsafe embedded icon',
+              icon: 'https://cdn.example/icon.png?notify_url=https%3A%2F%2Fprivate.example%2Fapi%2Fv1%2Fguest%2Fpayment%2Fnotify%2FEPay%2Fuuid',
+              handling_fee_fixed: 0,
+              handling_fee_percent: 0,
+            },
+          ],
+        })
+      )
+    );
+
+    const response = await authorizedRequest();
+
+    expect(await response.json()).toMatchObject({
+      data: [{ id: '3', icon: null }],
+    });
+  });
+
   it('fails closed on a malformed upstream method', async () => {
     vi.stubGlobal(
       'fetch',

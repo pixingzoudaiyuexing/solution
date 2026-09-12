@@ -76,10 +76,8 @@ describe('V2BoardAuthAdapter login', () => {
   it.each([
     'Incorrect email or password',
     'Your account has been suspended',
-    'There are too many password errors, please try again after 60 minutes.',
     '邮箱或密码错误',
     '该账户已被停止使用',
-    '密码错误次数过多，请 60 分钟后再试',
   ])('maps a known V2Board JSON auth error: %s', async (message) => {
     const adapter = createAdapter(
       vi.fn<typeof fetch>().mockResolvedValue(
@@ -90,6 +88,36 @@ describe('V2BoardAuthAdapter login', () => {
     await expect(
       adapter.login({ email: 'user@example.com', password: 'password123' })
     ).rejects.toBeInstanceOf(V2BoardAuthenticationError);
+  });
+
+  it.each([
+    'There are too many password errors, please try again after 1 minutes.',
+    'There are too many password errors, please try again after 60 minutes.',
+    '密码错误次数过多，请 1 分钟后再试',
+    '密码错误次数过多，请 120 分钟后再试',
+  ])('maps an exact dynamic login limit error: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.login({ email: 'user@example.com', password: 'password123' })
+    ).rejects.toBeInstanceOf(V2BoardAuthenticationError);
+  });
+
+  it.each([
+    'There are too many password errors SOMETHING ELSE',
+    'There are too many password errors, please try again later.',
+    '密码错误次数过多，请稍后重试',
+    '密码错误次数过多，请 x 分钟后再试',
+  ])('does not classify a dynamic login limit near-miss: %s', async (message) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message }, 500))
+    );
+
+    await expect(
+      adapter.login({ email: 'user@example.com', password: 'password123' })
+    ).rejects.toBeInstanceOf(V2BoardUpstreamError);
   });
 
   it('maps an upstream validation rejection without exposing its payload', async () => {

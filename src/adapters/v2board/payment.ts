@@ -164,7 +164,8 @@ export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
             type: 'redirect',
             target: validatePaymentRedirectTarget(
               parsed.data.data,
-              this.hiddenOrigin
+              this.hiddenOrigin,
+              { allowSignedV2BoardParameters: true }
             ),
           };
         } catch {

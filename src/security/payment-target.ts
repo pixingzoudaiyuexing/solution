@@ -1,4 +1,12 @@
 const INVALID_TARGET_ERROR = 'Invalid payment redirect target';
+const SIGNED_V2BOARD_PARAMETERS = new Set(['notify_url', 'return_url']);
+const NOTIFY_PATH_PATTERN =
+  /^\/api\/v1\/guest\/payment\/notify\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
+const RETURN_HASH_PATTERN = /^#\/order\/[A-Za-z0-9_-]{1,36}$/;
+
+export interface PaymentTargetValidationOptions {
+  allowSignedV2BoardParameters?: boolean;
+}
 
 function fail(): never {
   throw new Error(INVALID_TARGET_ERROR);
@@ -71,7 +79,7 @@ function isUnsafeHostname(hostname: string): boolean {
   return false;
 }
 
-function decodedTarget(value: string): string {
+function fullyDecoded(value: string): string {
   let decoded = value;
   for (let i = 0; i < 5; i += 1) {
     try {
@@ -82,16 +90,58 @@ function decodedTarget(value: string): string {
       break;
     }
   }
-  return decoded.toLowerCase();
+  return decoded;
+}
+
+function containsHiddenHostname(value: string, hiddenHostname: string): boolean {
+  return fullyDecoded(value).toLowerCase().includes(hiddenHostname);
+}
+
+function isAllowedSignedV2BoardUrl(
+  name: string,
+  value: string,
+  hiddenHostname: string
+): boolean {
+  if (!SIGNED_V2BOARD_PARAMETERS.has(name)) return false;
+
+  let nested: URL;
+  try {
+    nested = new URL(fullyDecoded(value));
+  } catch {
+    return false;
+  }
+  if (
+    (nested.protocol !== 'http:' && nested.protocol !== 'https:') ||
+    nested.username ||
+    nested.password ||
+    normalizeHostname(nested.hostname) !== hiddenHostname
+  ) {
+    return false;
+  }
+
+  if (name === 'notify_url') {
+    return (
+      nested.search === '' &&
+      nested.hash === '' &&
+      NOTIFY_PATH_PATTERN.test(nested.pathname)
+    );
+  }
+  return (
+    nested.pathname === '/' &&
+    nested.search === '' &&
+    RETURN_HASH_PATTERN.test(nested.hash)
+  );
 }
 
 export function validatePaymentRedirectTarget(
   value: string,
-  hiddenOrigin: string
+  hiddenOrigin: string,
+  options: PaymentTargetValidationOptions = {}
 ): string {
   let target: URL;
   let hidden: URL;
   try {
+    if (value !== value.trim()) return fail();
     target = new URL(value);
     hidden = new URL(hiddenOrigin);
   } catch {
@@ -109,12 +159,33 @@ export function validatePaymentRedirectTarget(
   }
 
   const hiddenHostname = normalizeHostname(hidden.hostname);
+  if (normalizeHostname(target.hostname) === hiddenHostname) {
+    return fail();
+  }
+
   if (
-    normalizeHostname(target.hostname) === hiddenHostname ||
-    decodedTarget(target.href).includes(hiddenHostname)
+    !options.allowSignedV2BoardParameters &&
+    containsHiddenHostname(target.href, hiddenHostname)
+  ) {
+    return fail();
+  }
+  if (
+    containsHiddenHostname(target.pathname, hiddenHostname) ||
+    containsHiddenHostname(target.hash, hiddenHostname)
   ) {
     return fail();
   }
 
-  return target.href;
+  for (const [name, parameterValue] of target.searchParams) {
+    if (containsHiddenHostname(name, hiddenHostname)) return fail();
+    if (!containsHiddenHostname(parameterValue, hiddenHostname)) continue;
+    if (
+      !options.allowSignedV2BoardParameters ||
+      !isAllowedSignedV2BoardUrl(name, parameterValue, hiddenHostname)
+    ) {
+      return fail();
+    }
+  }
+
+  return options.allowSignedV2BoardParameters ? value : target.href;
 }
