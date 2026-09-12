@@ -197,6 +197,152 @@ describe('PATCH /api/v1/me/preferences', () => {
   });
 });
 
+describe('GET /api/v1/me/preferences', () => {
+  it('maps current values and strips all sensitive user fields', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: {
+          auto_renewal: 1,
+          remind_expire: 0,
+          remind_traffic: true,
+          email: 'private@example.com',
+          balance: 999,
+          commission_balance: 888,
+          uuid: 'private-uuid',
+          telegram_id: 7,
+          plan_id: 3,
+          discount: 10,
+          commission_rate: 20,
+          last_login_at: 1700000000,
+          created_at: 1600000000,
+          device_limit: 2,
+          expired_at: 1900000000,
+          transfer_enable: 100,
+        },
+      })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await request('/api/v1/me/preferences', 'GET');
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      ok: true,
+      data: {
+        autoRenewal: true,
+        remindExpire: false,
+        remindTraffic: true,
+      },
+      requestId: 'request-id',
+    });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://backend.example/api/v1/user/info');
+    expect(init?.method).toBe('GET');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+    const serialized = JSON.stringify(body);
+    for (const forbidden of [
+      'private@example.com',
+      'private-uuid',
+      'balance',
+      'commission',
+      'telegram',
+      'plan_id',
+      'expired_at',
+      'transfer_enable',
+      'opaque-token',
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it('accepts official boolean serialization', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: {
+            auto_renewal: false,
+            remind_expire: true,
+            remind_traffic: false,
+          },
+        })
+      )
+    );
+
+    const response = await request('/api/v1/me/preferences', 'GET');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: {
+        autoRenewal: false,
+        remindExpire: true,
+        remindTraffic: false,
+      },
+    });
+  });
+
+  it('requires authorization before calling upstream', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await request(
+      '/api/v1/me/preferences',
+      'GET',
+      undefined,
+      false
+    );
+
+    expect(response.status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['string zero', { auto_renewal: '0', remind_expire: 1, remind_traffic: 0 }],
+    [
+      'string boolean',
+      { auto_renewal: 0, remind_expire: 'true', remind_traffic: 0 },
+    ],
+    ['unknown integer', { auto_renewal: 2, remind_expire: 1, remind_traffic: 0 }],
+    ['missing field', { auto_renewal: 0, remind_expire: 1 }],
+  ])('fails closed on malformed preferences: %s', async (_case, data) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data }))
+    );
+
+    const response = await request('/api/v1/me/preferences', 'GET');
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'UPSTREAM_ERROR' },
+    });
+  });
+
+  it('maps invalid auth and timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ message: 'Session expired' }, 403)
+      )
+    );
+    let response = await request('/api/v1/me/preferences', 'GET');
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: { code: 'AUTH_FAILED' } });
+
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    vi.stubGlobal('fetch', timeoutFetcher);
+    response = await request('/api/v1/me/preferences', 'GET');
+    expect(response.status).toBe(504);
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
+  });
+});
+
 describe('GET /api/v1/me/stats', () => {
   it.each([
     [[0, 0, 0], { pendingOrders: 0, openTickets: 0, invitedUsers: 0 }],

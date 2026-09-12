@@ -10,8 +10,11 @@
 | `POST /api/v1/auth/register`           | No             | `passport/auth/register`        |
 | `POST /api/v1/auth/email-code`         | No             | `passport/comm/sendEmailVerify` |
 | `POST /api/v1/auth/password/reset`     | No             | `passport/auth/forget`          |
+| `GET /api/v1/config/onboarding`        | No             | `guest/comm/config`             |
+| `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
+| `GET /api/v1/me/preferences`           | Yes            | `user/info`                     |
 | `PATCH /api/v1/me/preferences`         | Yes            | `user/update`                   |
 | `GET /api/v1/me/stats`                 | Yes            | `user/getStat`                  |
 | `GET /api/v1/wallet`                   | Yes            | `user/info`                     |
@@ -1399,7 +1402,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2V 增加 user-aware Product Detail 后，本文件顶部矩阵包含 41 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2W 增加最小 Account / Onboarding Config 后，本文件顶部矩阵包含 44 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1793,3 +1796,103 @@ Payment Provider callback 仍直接进入 V2Board。solution 不增加 wallet ch
 错误仅按官方 `99f8526` 源码和 translation 的完整 exact message 分类，不返回 raw V2Board/Laravel message。Gateway 不自动 retry；收到 `UPSTREAM_TIMEOUT` 后，V2Board 可能已创建 Deposit Order，Client 应先调用 `GET /api/v1/orders` 检查后再决定是否重新提交。
 
 Gateway 不计算或修改 balance，不读取/预测 `deposit_bounus`，不计算 credited amount/handling fee，不处理 callback，也不建立 deposit session、wallet ledger、pending balance、bonus cache、idempotency state、KV、D1、Durable Objects、Redis 或数据库。币种仍由 V2Board 部署配置决定，本 Contract 不硬编码 CNY、USD 或 currency symbol。
+
+## Phase 2W Minimal Account / Onboarding Config
+
+三个接口各自只调用一个 Official endpoint，不聚合成 mega-config，不保存 config/preferences snapshot，不增加 KV、D1、Durable Objects、Redis 或数据库。成功和错误响应均使用 `Cache-Control: no-store`。
+
+### Onboarding Config
+
+```http
+GET /api/v1/config/onboarding
+```
+
+本接口无需 Bearer，只调用一次 `GET guest/comm/config`：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "termsUrl": null,
+    "emailVerificationRequired": false,
+    "inviteCodeRequired": false,
+    "emailSuffixWhitelist": null,
+    "antiBot": {
+      "enabled": false,
+      "provider": null,
+      "siteKey": null
+    }
+  },
+  "requestId": "request-id"
+}
+```
+
+| Official field | Public field | Rule |
+| --- | --- | --- |
+| `tos_url` | `termsUrl` | `null`/空字符串映射为 `null`；非空值只允许无 credential 的 HTTP/HTTPS URL |
+| `is_email_verify` | `emailVerificationRequired` | 严格 `0/1` 映射为 boolean |
+| `is_invite_force` | `inviteCodeRequired` | 严格 `0/1` 映射为 boolean |
+| `email_whitelist_suffix` | `emailSuffixWhitelist` | `0` 映射为 `null`；array item trim 后原样返回，不自行补 `@` 或 `.` |
+| `is_recaptcha` / `recaptcha_site_key` | `antiBot` | enabled 时 provider 为 `recaptcha` 且 site key 必须是非空受限字符串；disabled 时 provider/siteKey 始终为 `null` |
+
+Onboarding Config 只描述 registration requirements，不承诺 registration 当前一定开放。Public Contract 不提供 `registrationOpen` 或等价字段；实际注册资格仍由 `POST /api/v1/auth/register` 和 V2Board 权威裁决。
+
+`antiBot.provider="recaptcha"` 是当前 Official V2Board 的 capability discovery，不会把 Auth mutation 绑定到 provider。`POST /api/v1/auth/email-code` 和 `POST /api/v1/auth/register` 仍只接受 provider-neutral `challengeToken`，Adapter 内部继续映射为 `recaptcha_data`。本 Phase 不增加 `recaptchaData`、challenge endpoint 或 Gateway anti-bot state。
+
+Public DTO 不包含 Official guest config 的 app URL、description、logo 或 raw config，也不请求 Terms URL 内容。
+
+### Account Preferences Read
+
+```http
+GET /api/v1/me/preferences
+Authorization: Bearer <opaque-token>
+```
+
+Adapter 只调用一次 `GET user/info`，只解析 `auto_renewal`、`remind_expire`、`remind_traffic`。Official `0/1` 或 boolean 映射为稳定 boolean，numeric/string booleans 不被接受。
+
+```json
+{
+  "ok": true,
+  "data": {
+    "autoRenewal": true,
+    "remindExpire": true,
+    "remindTraffic": false
+  },
+  "requestId": "request-id"
+}
+```
+
+V2Board 是 preference 当前值的唯一权威。User Model 中的 email、balance、commission、UUID、Telegram、plan、discount、login/created time、device/expiry/traffic 字段全部丢弃。现有 `PATCH /api/v1/me/preferences` 契约、strict request schema、boolean-to-`0/1` 映射和 response 完全不变。
+
+### Account Config
+
+```http
+GET /api/v1/config/account
+Authorization: Bearer <opaque-token>
+```
+
+Adapter 只调用一次 `GET user/comm/config`，严格白名单映射：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "currency": "CNY",
+    "currencySymbol": "¥"
+  },
+  "requestId": "request-id"
+}
+```
+
+`currency` 和 `currencySymbol` 都是 trim 后 1 至 16 字符的字符串。Gateway 不限制 currency enum、不假设 symbol、不换算金额；Products、Wallet 和 Orders 继续使用 V2Board minor unit，不在各 DTO 重复 currency。
+
+Public DTO 不包含 Stripe public key/route、Telegram config、withdrawal methods/flags、multi-level commission config 或 raw `user/comm/config`。Withdrawal 继续使用已有独立 Public Contract，Stripe Card Flow、Telegram 和 multi-level commission 仍是 Non-goals。
+
+### Phase 2W Errors
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 401 | `AUTH_REQUIRED` | Preferences / Account Config 缺少 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 Preferences / Account Config credential |
+| 502 | `UPSTREAM_ERROR` | malformed field、非法 Terms URL、矛盾 anti-bot config、HTML、invalid JSON 或未知 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |

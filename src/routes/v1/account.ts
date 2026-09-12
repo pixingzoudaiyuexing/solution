@@ -4,6 +4,7 @@ import { V2BoardAccountAdapter } from '../../adapters/v2board/account';
 import { V2BoardAuthAdapter } from '../../adapters/v2board/auth';
 import { createV2BoardClient } from '../../adapters/v2board/factory';
 import type {
+  AccountPreferencesSuccessResponse,
   AccountStatsSuccessResponse,
   ChangePasswordSuccessResponse,
   UpdatePreferencesSuccessResponse,
@@ -49,6 +50,18 @@ accountRouter.post('/password', requireAuthorization, async (c) => {
   const adapter = new V2BoardAuthAdapter(createV2BoardClient(c.env));
   const data = await adapter.changePassword(c.get('authToken'), parsed.data);
   const response: ChangePasswordSuccessResponse = {
+    ok: true,
+    data,
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+accountRouter.get('/preferences', requireAuthorization, async (c) => {
+  const adapter = new V2BoardAccountAdapter(createV2BoardClient(c.env));
+  const data = await adapter.preferences(c.get('authToken'));
+  const response: AccountPreferencesSuccessResponse = {
     ok: true,
     data,
     requestId: requestId(c),

@@ -31,6 +31,18 @@ export interface AccountPreferencesRequest {
   remindTraffic?: boolean;
 }
 
+export interface AccountPreferences {
+  autoRenewal: boolean;
+  remindExpire: boolean;
+  remindTraffic: boolean;
+}
+
+export interface AccountPreferencesSuccessResponse {
+  ok: true;
+  data: AccountPreferences;
+  requestId: string;
+}
+
 export interface PreferencesUpdated {
   updated: true;
 }

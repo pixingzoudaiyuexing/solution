@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  AccountPreferences,
   AccountPreferencesRequest,
   AccountStats,
   PreferencesUpdated,
@@ -12,6 +13,20 @@ import {
 } from './errors';
 
 const trueResponseSchema = z.object({ data: z.literal(true) }).strip();
+const preferenceFlagSchema = z
+  .union([z.boolean(), z.literal(0), z.literal(1)])
+  .transform((value) => value === true || value === 1);
+const preferencesResponseSchema = z
+  .object({
+    data: z
+      .object({
+        auto_renewal: preferenceFlagSchema,
+        remind_expire: preferenceFlagSchema,
+        remind_traffic: preferenceFlagSchema,
+      })
+      .strip(),
+  })
+  .strip();
 const boundedCountSchema = z
   .number()
   .int()
@@ -39,6 +54,22 @@ const PREFERENCES_UPDATE_MESSAGES = new Set([
 export class V2BoardAccountAdapter extends V2BoardAdapterBase {
   constructor(client: V2BoardClient) {
     super(client);
+  }
+
+  async preferences(authToken: string): Promise<AccountPreferences> {
+    const { response, payload } = await this.requestJson('user/info', {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: authToken },
+    });
+    this.assertAuthorizedResponse(response);
+
+    const parsed = preferencesResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardUpstreamError();
+    return {
+      autoRenewal: parsed.data.data.auto_renewal,
+      remindExpire: parsed.data.data.remind_expire,
+      remindTraffic: parsed.data.data.remind_traffic,
+    };
   }
 
   async updatePreferences(

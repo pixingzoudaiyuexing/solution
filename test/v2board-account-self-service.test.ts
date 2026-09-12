@@ -3,6 +3,7 @@ import { V2BoardAccountAdapter } from '../src/adapters/v2board/account';
 import { V2BoardAuthAdapter } from '../src/adapters/v2board/auth';
 import { V2BoardClient } from '../src/adapters/v2board/client';
 import {
+  V2BoardAuthenticationError,
   V2BoardPasswordChangeError,
   V2BoardPreferencesUpdateError,
   V2BoardTimeoutError,
@@ -204,6 +205,71 @@ describe('V2BoardAccountAdapter preferences', () => {
     await expect(
       timeout.updatePreferences('opaque-token', request)
     ).rejects.toBeInstanceOf(V2BoardTimeoutError);
+  });
+});
+
+describe('V2BoardAccountAdapter read preferences', () => {
+  it.each([
+    [
+      { auto_renewal: 0, remind_expire: 1, remind_traffic: 0 },
+      { autoRenewal: false, remindExpire: true, remindTraffic: false },
+    ],
+    [
+      { auto_renewal: true, remind_expire: false, remind_traffic: true },
+      { autoRenewal: true, remindExpire: false, remindTraffic: true },
+    ],
+  ] as const)('maps supported upstream flags %#', async (data, expected) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ data, email: 'must-not-leak' }));
+    const adapter = new V2BoardAccountAdapter(client(fetcher));
+
+    await expect(adapter.preferences('opaque-token')).resolves.toEqual(expected);
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe('https://backend.example/api/v1/user/info');
+    expect(init?.method).toBe('GET');
+    expect(init?.redirect).toBe('manual');
+    expect(new Headers(init?.headers).get('authorization')).toBe('opaque-token');
+  });
+
+  it.each([
+    { data: { auto_renewal: '0', remind_expire: 1, remind_traffic: 0 } },
+    { data: { auto_renewal: 0, remind_expire: '1', remind_traffic: 0 } },
+    { data: { auto_renewal: 0, remind_expire: 1, remind_traffic: 2 } },
+    { data: { auto_renewal: 0, remind_expire: 1 } },
+    { data: null },
+    {},
+  ])('fails closed on malformed preferences %#', async (payload) => {
+    const adapter = new V2BoardAccountAdapter(
+      client(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload)))
+    );
+
+    await expect(adapter.preferences('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardUpstreamError
+    );
+  });
+
+  it('normalizes authentication failure and timeout', async () => {
+    const rejected = new V2BoardAccountAdapter(
+      client(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          jsonResponse({ message: 'Session expired' }, 403)
+        )
+      )
+    );
+    const timeoutFetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    const timeout = new V2BoardAccountAdapter(client(timeoutFetcher));
+
+    await expect(rejected.preferences('invalid-token')).rejects.toBeInstanceOf(
+      V2BoardAuthenticationError
+    );
+    await expect(timeout.preferences('opaque-token')).rejects.toBeInstanceOf(
+      V2BoardTimeoutError
+    );
+    expect(timeoutFetcher).toHaveBeenCalledOnce();
   });
 });
 
