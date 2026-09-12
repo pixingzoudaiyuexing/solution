@@ -26,6 +26,13 @@ export class V2BoardTimeoutError extends Error {
   }
 }
 
+export class V2BoardProductNotFoundError extends Error {
+  constructor() {
+    super('V2Board product not found');
+    this.name = 'V2BoardProductNotFoundError';
+  }
+}
+
 export class V2BoardRegistrationUnavailableError extends Error {
   constructor() {
     super('V2Board registration unavailable');

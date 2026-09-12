@@ -11,7 +11,11 @@ import type {
 } from '../contract/auth';
 import { GatewayError } from '../contract/error';
 import type { CurrentUserSuccessResponse } from '../contract/user';
-import type { ProductsSuccessResponse } from '../contract/product';
+import {
+  productIdSchema,
+  type ProductSuccessResponse,
+  type ProductsSuccessResponse,
+} from '../contract/product';
 import type { ResourcesSuccessResponse } from '../contract/resource';
 import { requestId } from '../http/request-id';
 import {
@@ -163,6 +167,25 @@ v1Router.get('/products', requireAuthorization, async (c) => {
   const response: ProductsSuccessResponse = {
     ok: true,
     data: { products },
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+v1Router.get('/products/:id', requireAuthorization, async (c) => {
+  const parsedId = productIdSchema.safeParse(c.req.param('id'));
+  if (!parsedId.success) {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+
+  const product = await businessAdapter(c.env).product(
+    c.get('authToken'),
+    parsedId.data
+  );
+  const response: ProductSuccessResponse = {
+    ok: true,
+    data: { product },
     requestId: requestId(c),
   };
   c.header('Cache-Control', 'no-store');

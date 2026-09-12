@@ -13,6 +13,7 @@ import {
   type OrderStatusSuccessResponse,
 } from '../../contract/v1/orders';
 import { GatewayError } from '../../contract/error';
+import { productIdSchema } from '../../contract/product';
 import {
   PAYMENT_METHOD_ID_PATTERN,
   type CheckoutSuccessResponse,
@@ -27,10 +28,6 @@ import { isAllowedFrontendOrigin } from '../../security/cors';
 import { validateTrustedUserAgent } from '../../security/user-agent';
 
 const ordersRouter = new Hono<GatewayContext>();
-const productIdSchema = z
-  .string()
-  .regex(/^[1-9]\d{0,9}$/)
-  .refine((value) => Number(value) <= 2_147_483_647);
 const createOrderSchema = z
   .object({
     productId: productIdSchema,

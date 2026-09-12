@@ -17,6 +17,7 @@
 | `GET /api/v1/wallet`                   | Yes            | `user/info`                     |
 | `POST /api/v1/wallet/deposits`         | Yes            | `user/order/save`               |
 | `GET /api/v1/products`                 | Yes            | `user/plan/fetch`               |
+| `GET /api/v1/products/{id}`            | Yes            | `user/plan/fetch?id={id}`       |
 | `GET /api/v1/orders`                   | Yes            | `user/order/fetch`              |
 | `POST /api/v1/orders`                  | Yes            | `user/order/save`               |
 | `GET /api/v1/orders/{id}`              | Yes            | `user/order/detail`             |
@@ -158,6 +159,47 @@ Success：
 ```
 
 `amountMinor` 使用 V2Board 配置货币的最小单位。`billingPeriod` 可为 `month`、`quarter`、`halfYear`、`year`、`twoYears`、`threeYears`、`oneTime`。流量重置价格不属于本接口。
+
+### Product Detail
+
+```http
+GET /api/v1/products/{id}
+Authorization: Bearer <opaque-token>
+```
+
+`id` 使用与 Order Create `productId` 相同的规则：必须是 1 至 `2147483647` 的正整数字符串，不接受负数、0、小数、科学计数法或任意字符串。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "product": {
+      "id": "7",
+      "name": "Pro Plan",
+      "dataAllowanceGb": 100,
+      "speedLimitMbps": null,
+      "available": true,
+      "prices": [
+        {
+          "billingPeriod": "month",
+          "amountMinor": 990
+        }
+      ]
+    }
+  },
+  "requestId": "request-id"
+}
+```
+
+Gateway 只执行一次 authenticated `GET user/plan/fetch?id={id}`，不预读 `user/info`、`user/getSubscribe`、plan list 或 order list。官方 V2Board 独占决定 Plan 是否存在、是否可见、hidden Plan 是否属于当前用户以及是否可续费。因此，官方允许当前用户读取的 hidden renewable Plan 会正常映射为同一 Product DTO；Gateway 不做额外可见性、renew 或 current-plan 比较。
+
+Product Detail 与 Products List 复用同一 Plan-to-Product 映射。`available` 继续仅表示上游 `capacity_limit` 为 `null`/缺失或大于 0。官方 list endpoint 会用活跃用户数调整该字段，detail endpoint 则返回未调整的 Plan 字段；Gateway 不计算容量，也不伪造两个 endpoint 之间的一致性。
+
+详情读取成功不代表后续 Order Create 一定成功；`POST /api/v1/orders` 及 V2Board `user/order/save` 仍是最终购买/续费资格的权威。Public DTO 不暴露 `show`、`renew`、`reset_price`、`capacity_limit`、`device_limit`、`content` 或 raw Plan model；返回 `Cache-Control: no-store`。
+
+官方 exact error `Subscription plan does not exist` 及官方中文翻译 `订阅计划不存在` 统一映射为 `404 PRODUCT_NOT_FOUND`，不区分真实不存在、hidden 不可见或 renew 不允许。部分匹配、未知错误、malformed payload、HTML 或 invalid JSON 统一 fail closed 为 `502 UPSTREAM_ERROR`；timeout 为 `504 UPSTREAM_TIMEOUT`。
 
 ### Public Resources
 
@@ -1357,7 +1399,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2U 增加 Wallet Deposit 后，本文件顶部矩阵包含 40 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2V 增加 user-aware Product Detail 后，本文件顶部矩阵包含 41 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 

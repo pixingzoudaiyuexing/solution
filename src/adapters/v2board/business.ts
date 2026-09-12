@@ -7,7 +7,10 @@ import type {
 import type { PublicResource } from '../../contract/resource';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
-import { V2BoardUpstreamError } from './errors';
+import {
+  V2BoardProductNotFoundError,
+  V2BoardUpstreamError,
+} from './errors';
 
 const optionalAmountSchema = z.number().int().nonnegative().nullable().optional();
 const planSchema = z
@@ -28,6 +31,10 @@ const planSchema = z
   .strip();
 const plansResponseSchema = z
   .object({ data: z.array(planSchema) })
+  .strip();
+const planResponseSchema = z.object({ data: planSchema }).strip();
+const errorResponseSchema = z
+  .object({ message: z.string().optional(), error: z.string().optional() })
   .strip();
 
 const resourceSchema = z
@@ -66,6 +73,11 @@ const PRICE_FIELDS: ReadonlyArray<
   ['onetime_price', 'oneTime'],
 ];
 
+const PRODUCT_NOT_FOUND_MESSAGES = new Set([
+  'Subscription plan does not exist',
+  '订阅计划不存在',
+]);
+
 function productPrices(plan: z.infer<typeof planSchema>): ProductPrice[] {
   return PRICE_FIELDS.flatMap(([field, billingPeriod]) => {
     const amountMinor = plan[field];
@@ -73,6 +85,26 @@ function productPrices(plan: z.infer<typeof planSchema>): ProductPrice[] {
       ? []
       : [{ billingPeriod, amountMinor }];
   });
+}
+
+function planToProduct(plan: z.infer<typeof planSchema>): Product {
+  return {
+    id: String(plan.id),
+    name: plan.name,
+    dataAllowanceGb: plan.transfer_enable,
+    speedLimitMbps: plan.speed_limit ?? null,
+    available:
+      plan.capacity_limit === null ||
+      plan.capacity_limit === undefined ||
+      plan.capacity_limit > 0,
+    prices: productPrices(plan),
+  };
+}
+
+function errorMessage(payload: unknown): string | undefined {
+  const parsed = errorResponseSchema.safeParse(payload);
+  if (!parsed.success) return undefined;
+  return parsed.data.message ?? parsed.data.error;
 }
 
 export class V2BoardBusinessAdapter extends V2BoardAdapterBase {
@@ -91,17 +123,31 @@ export class V2BoardBusinessAdapter extends V2BoardAdapterBase {
       throw new V2BoardUpstreamError();
     }
 
-    return parsed.data.data.map((plan) => ({
-      id: String(plan.id),
-      name: plan.name,
-      dataAllowanceGb: plan.transfer_enable,
-      speedLimitMbps: plan.speed_limit ?? null,
-      available:
-        plan.capacity_limit === null ||
-        plan.capacity_limit === undefined ||
-        plan.capacity_limit > 0,
-      prices: productPrices(plan),
-    }));
+    return parsed.data.data.map(planToProduct);
+  }
+
+  async product(authToken: string, id: string): Promise<Product> {
+    const { response, payload } = await this.requestJson(
+      `user/plan/fetch?id=${encodeURIComponent(id)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: authToken },
+      }
+    );
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      const message = errorMessage(payload);
+      if (message !== undefined && PRODUCT_NOT_FOUND_MESSAGES.has(message)) {
+        throw new V2BoardProductNotFoundError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+
+    const parsed = planResponseSchema.safeParse(payload);
+    if (!parsed.success || String(parsed.data.data.id) !== id) {
+      throw new V2BoardUpstreamError();
+    }
+    return planToProduct(parsed.data.data);
   }
 
   async resources(authToken: string): Promise<PublicResource[]> {

@@ -17,11 +17,13 @@
 V1 CONTRACT BASELINE FROZEN
 ```
 
-Phase 2U 以向后兼容的 additive extension 新增 Wallet Deposit Order 创建；真实 source route tree 包含 40 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
+Phase 2V 以向后兼容的 additive extension 新增 authenticated Product Detail；真实 source route tree 包含 41 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 
 V2Board-first Business Ownership：官方 V2Board 已支持的业务规则、金额计算、资格、transaction、state mutation 和 callback 继续由 V2Board 持有；solution 只做 Public Contract、验证、安全过滤和 Adapter 映射。Coupon Application 只把 `promotionCode` 映射为 `coupon_code`，不预查、不计算折扣/价格/VIP/余额，也不保存 coupon state。
+
+Phase 2V 的 Product Detail 只将 `GET /api/v1/products/{id}` 映射为一次 `GET user/plan/fetch?id={id}`。hidden/current/renewable Plan 的可见性和最终购买资格仍完全由 V2Board 决定；Gateway 不预读用户或套餐、不计算容量、不比较 current plan，也不复制 `show` / `renew` 逻辑。详情成功不代表 Order Create 成功，`user/order/save` 仍是最终权威。
 
 Wallet Balance Read 只把官方 `user/info.balance` 原样映射为 `balanceMinor`。Wallet Deposit 仅映射 V2Board 原生 `plan_id=0/period=deposit` Order Create；Gateway 不计算、合并、缓存或修改余额，不计算 bonus，也不持有 checkout、callback 或支付状态。Deposit、commission transfer、Gift Card、订单抵扣和 cancellation/refund 继续由 V2Board 持有。
 

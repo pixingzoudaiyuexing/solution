@@ -1,3 +1,10 @@
+import { z } from 'zod';
+
+export const productIdSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,9}$/)
+  .refine((value) => Number(value) <= 2_147_483_647);
+
 export type BillingPeriod =
   | 'month'
   | 'quarter'
@@ -24,5 +31,11 @@ export interface Product {
 export interface ProductsSuccessResponse {
   ok: true;
   data: { products: Product[] };
+  requestId: string;
+}
+
+export interface ProductSuccessResponse {
+  ok: true;
+  data: { product: Product };
   requestId: string;
 }

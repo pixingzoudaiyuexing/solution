@@ -42,6 +42,7 @@ import {
   V2BoardTicketUnavailableError,
   V2BoardPromotionInvalidError,
   V2BoardPreferencesUpdateError,
+  V2BoardProductNotFoundError,
   V2BoardTimeoutError,
   V2BoardValidationError,
   V2BoardVerificationError,
@@ -70,6 +71,13 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse('AUTH_FAILED', 'Authentication failed', id),
       401
+    );
+  }
+
+  if (err instanceof V2BoardProductNotFoundError) {
+    return c.json(
+      publicErrorResponse('PRODUCT_NOT_FOUND', 'Product not found', id),
+      404
     );
   }
 
