@@ -15,6 +15,7 @@
 | `PATCH /api/v1/me/preferences`         | Yes            | `user/update`                   |
 | `GET /api/v1/me/stats`                 | Yes            | `user/getStat`                  |
 | `GET /api/v1/wallet`                   | Yes            | `user/info`                     |
+| `POST /api/v1/wallet/deposits`         | Yes            | `user/order/save`               |
 | `GET /api/v1/products`                 | Yes            | `user/plan/fetch`               |
 | `GET /api/v1/orders`                   | Yes            | `user/order/fetch`              |
 | `POST /api/v1/orders`                  | Yes            | `user/order/save`               |
@@ -1356,7 +1357,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2T 增加 Wallet Balance Read 后，本文件顶部矩阵包含 39 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2U 增加 Wallet Deposit 后，本文件顶部矩阵包含 40 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1682,6 +1683,71 @@ Wallet DTO 只包含 `balanceMinor`。`email`、UUID、Telegram ID、`commission
 
 缺少或无效 Bearer 分别使用 `AUTH_REQUIRED` / `AUTH_FAILED`。负数、浮点、numeric string、null、缺失 balance、HTML、invalid JSON、用户缺失或其他 malformed upstream response fail closed 为 `502 UPSTREAM_ERROR`；timeout 为 `504 UPSTREAM_TIMEOUT`。所有响应使用 `Cache-Control: no-store`。
 
-V2Board 继续拥有 Wallet 的全部 mutation，包括 deposit、commission transfer、Gift Card、订单余额抵扣以及 cancellation/refund 恢复。Gateway 不创建 ledger、不缓存 balance、不保存 snapshot，也不增加 KV、D1、Durable Objects、Redis 或数据库。本 Phase 不提供 Wallet Deposit 或任何其他资金 mutation。
+V2Board 继续拥有 Wallet 的全部 mutation，包括 deposit、commission transfer、Gift Card、订单余额抵扣以及 cancellation/refund 恢复。Gateway 不创建 ledger、不缓存 balance、不保存 snapshot，也不增加 KV、D1、Durable Objects、Redis 或数据库。Phase 2U 仅以 V2Board 原生 Deposit Order 暴露充值创建，其他资金 mutation 不变。
 
 现有 `GET /api/v1/me` DTO 保持不变，仍只包含 `email`、`expiresAt` 和 `status`。
+
+## Phase 2U Wallet Deposit
+
+```http
+POST /api/v1/wallet/deposits
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+```json
+{ "amountMinor": 1000 }
+```
+
+`amountMinor` 必须是 `1..2147483647` 的整数。Gateway 不接受字符串、浮点、零、负数、额外字段或 upstream `deposit_amount` alias，也不复制 V2Board 当前的具体 deposit 业务上限。
+
+Adapter 直接且只调用一次官方 Order Create：
+
+```http
+POST user/order/save
+Content-Type: application/json
+
+{
+  "plan_id": 0,
+  "period": "deposit",
+  "deposit_amount": 1000
+}
+```
+
+不会先调用 wallet、user info、orders、payment methods 或 config，也不会在成功后自动读取 Order/Wallet。只有 official response 严格返回合法 `trade_no` 才以 HTTP 201 返回：
+
+```json
+{
+  "ok": true,
+  "data": { "id": "deposit-order-id" },
+  "requestId": "request-id"
+}
+```
+
+创建 Deposit Order 不代表 Wallet 已到账。完整流程继续复用现有 Public Contract：
+
+```text
+POST /api/v1/wallet/deposits
+GET /api/v1/billing/methods
+POST /api/v1/orders/{id}/checkout
+GET /api/v1/orders/{id}/status
+GET /api/v1/wallet
+```
+
+Payment Provider callback 仍直接进入 V2Board。solution 不增加 wallet checkout、callback、payment session 或支付状态。V2Board 自己创建 `plan_id=0/period=deposit/type=9` Order，处理 payment 与 handling fee，并在 callback/order processing 后计算 deposit bonus、原子增加 `user.balance` 和完成 Order transaction。
+
+现有 Order list/detail/status/cancel/checkout 能继续处理 Deposit Order。Public Order DTO 不增加 `type`、`period`、`plan`、`bounus` 或 `get_amount`；最终到账余额以 `GET /api/v1/wallet` 为权威。
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | Public amountMinor 不符合通用 signed INT minor-unit boundary |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
+| 409 | `WALLET_DEPOSIT_UNAVAILABLE` | 官方 exact error 表明已有 pending/processing Order |
+| 422 | `WALLET_DEPOSIT_AMOUNT_INVALID` | 官方 exact error 拒绝 Deposit amount 业务规则 |
+| 502 | `WALLET_DEPOSIT_CREATE_FAILED` | 官方 exact error 表明 Order save 失败 |
+| 502 | `UPSTREAM_ERROR` | malformed trade_no、HTML、invalid JSON 或未知 upstream error |
+| 504 | `UPSTREAM_TIMEOUT` | Deposit Order 创建结果未知 |
+
+错误仅按官方 `99f8526` 源码和 translation 的完整 exact message 分类，不返回 raw V2Board/Laravel message。Gateway 不自动 retry；收到 `UPSTREAM_TIMEOUT` 后，V2Board 可能已创建 Deposit Order，Client 应先调用 `GET /api/v1/orders` 检查后再决定是否重新提交。
+
+Gateway 不计算或修改 balance，不读取/预测 `deposit_bounus`，不计算 credited amount/handling fee，不处理 callback，也不建立 deposit session、wallet ledger、pending balance、bonus cache、idempotency state、KV、D1、Durable Objects、Redis 或数据库。币种仍由 V2Board 部署配置决定，本 Contract 不硬编码 CNY、USD 或 currency symbol。

@@ -7,3 +7,17 @@ export interface WalletSuccessResponse {
   data: Wallet;
   requestId: string;
 }
+
+export interface CreateWalletDepositRequest {
+  amountMinor: number;
+}
+
+export interface WalletDepositCreated {
+  id: string;
+}
+
+export interface WalletDepositCreatedSuccessResponse {
+  ok: true;
+  data: WalletDepositCreated;
+  requestId: string;
+}

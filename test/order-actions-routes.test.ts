@@ -56,6 +56,33 @@ describe('GET /api/v1/orders/:id/status', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it('reads and cancels a pending deposit order through existing generic routes', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ data: true }));
+    vi.stubGlobal('fetch', fetcher);
+
+    const status = await app.request(
+      '/api/v1/orders/deposit-order-001/status',
+      { headers: { Authorization: 'Bearer opaque-token' } },
+      env
+    );
+    const cancel = await app.request(
+      '/api/v1/orders/deposit-order-001/cancel',
+      { method: 'POST', headers: { Authorization: 'Bearer opaque-token' } },
+      env
+    );
+
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({
+      data: { id: 'deposit-order-001', status: 'pending' },
+    });
+    expect(cancel.status).toBe(200);
+    expect(await cancel.json()).toMatchObject({ data: { cancelled: true } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('normalizes missing, malformed, unknown, and timeout responses', async () => {
     const cases = [
       [jsonResponse({ message: 'Order does not exist' }, 500), 404, 'ORDER_NOT_FOUND'],

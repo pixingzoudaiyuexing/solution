@@ -319,3 +319,24 @@ export class V2BoardWithdrawalRequestError extends Error {
     this.name = 'V2BoardWithdrawalRequestError';
   }
 }
+
+export class V2BoardWalletDepositUnavailableError extends Error {
+  constructor() {
+    super('V2Board wallet deposit is unavailable');
+    this.name = 'V2BoardWalletDepositUnavailableError';
+  }
+}
+
+export class V2BoardWalletDepositAmountInvalidError extends Error {
+  constructor() {
+    super('V2Board wallet deposit amount is invalid');
+    this.name = 'V2BoardWalletDepositAmountInvalidError';
+  }
+}
+
+export class V2BoardWalletDepositCreateError extends Error {
+  constructor() {
+    super('V2Board wallet deposit order creation failed');
+    this.name = 'V2BoardWalletDepositCreateError';
+  }
+}

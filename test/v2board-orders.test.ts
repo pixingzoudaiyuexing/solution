@@ -84,6 +84,40 @@ describe('V2BoardOrdersAdapter', () => {
     ]);
   });
 
+  it('maps deposit order detail while stripping type, bonus, and credited amount', async () => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: {
+            trade_no: 'deposit-order-detail',
+            status: 0,
+            total_amount: 1_000,
+            created_at: 1704067200,
+            updated_at: 1704153600,
+            plan_id: 0,
+            period: 'deposit',
+            type: 9,
+            plan: { id: 0, name: 'deposit' },
+            bounus: 50,
+            get_amount: 1_050,
+            payment_id: 3,
+          },
+        })
+      )
+    );
+
+    await expect(
+      adapter.order('opaque-token', 'deposit-order-detail')
+    ).resolves.toEqual({
+      id: 'deposit-order-detail',
+      status: 'pending',
+      amountMinor: 1_000,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-02T00:00:00.000Z',
+      expiresAt: null,
+    });
+  });
+
   it('maps all V2Board statuses and strips internal fields', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({

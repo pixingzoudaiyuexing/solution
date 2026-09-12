@@ -45,6 +45,9 @@ import {
   V2BoardTimeoutError,
   V2BoardValidationError,
   V2BoardVerificationError,
+  V2BoardWalletDepositAmountInvalidError,
+  V2BoardWalletDepositCreateError,
+  V2BoardWalletDepositUnavailableError,
   V2BoardWithdrawalDisabledError,
   V2BoardWithdrawalMethodUnsupportedError,
   V2BoardWithdrawalMinimumNotMetError,
@@ -130,6 +133,39 @@ export const errorHandler: ErrorHandler = (err, c) => {
       publicErrorResponse(
         'WITHDRAWAL_REQUEST_FAILED',
         'Unable to create withdrawal request',
+        id
+      ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardWalletDepositUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'WALLET_DEPOSIT_UNAVAILABLE',
+        'Wallet deposit is unavailable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardWalletDepositAmountInvalidError) {
+    return c.json(
+      publicErrorResponse(
+        'WALLET_DEPOSIT_AMOUNT_INVALID',
+        'Deposit amount is not accepted',
+        id
+      ),
+      422
+    );
+  }
+
+  if (err instanceof V2BoardWalletDepositCreateError) {
+    return c.json(
+      publicErrorResponse(
+        'WALLET_DEPOSIT_CREATE_FAILED',
+        'Unable to create wallet deposit',
         id
       ),
       502

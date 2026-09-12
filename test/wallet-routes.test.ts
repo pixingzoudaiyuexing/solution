@@ -192,3 +192,149 @@ describe('GET /api/v1/wallet', () => {
     expect(logged).not.toContain('backend.example');
   });
 });
+
+describe('POST /api/v1/wallet/deposits', () => {
+  async function createDeposit(body: unknown, authenticated = true): Promise<Response> {
+    return app.request(
+      '/api/v1/wallet/deposits',
+      {
+        method: 'POST',
+        headers: {
+          ...(authenticated ? { Authorization: 'Bearer opaque-token' } : {}),
+          'Content-Type': 'application/json',
+          'cf-ray': 'request-id',
+        },
+        body: JSON.stringify(body),
+      },
+      env
+    );
+  }
+
+  it('creates one deposit order without pre-read, checkout, or balance mutation', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: 'deposit-order-001', balance: 99, bonus: 50 })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await createDeposit({ amountMinor: 1_000 });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: { id: 'deposit-order-001' },
+      requestId: 'request-id',
+    });
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://backend.example/api/v1/user/order/save'
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual({
+      plan_id: 0,
+      period: 'deposit',
+      deposit_amount: 1_000,
+    });
+  });
+
+  it.each([
+    ['missing', {}],
+    ['zero', { amountMinor: 0 }],
+    ['negative', { amountMinor: -1 }],
+    ['fractional', { amountMinor: 1.5 }],
+    ['string', { amountMinor: '1000' }],
+    ['NaN', { amountMinor: Number.NaN }],
+    ['Infinity', { amountMinor: Number.POSITIVE_INFINITY }],
+    ['above signed INT', { amountMinor: 2_147_483_648 }],
+    ['unknown field', { amountMinor: 1_000, balance: 0 }],
+    ['upstream alias', { deposit_amount: 1_000 }],
+  ])('rejects %s before upstream', async (_case, body) => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await createDeposit(body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR' },
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('accepts signed INT max without copying the official business maximum', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ data: 'deposit-order-max' })
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const response = await createDeposit({ amountMinor: 2_147_483_647 });
+    expect(response.status).toBe(201);
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toMatchObject({
+      deposit_amount: 2_147_483_647,
+    });
+  });
+
+  it('requires auth before reading the body', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    const response = await app.request(
+      '/api/v1/wallet/deposits',
+      { method: 'POST', body: '{invalid' },
+      env
+    );
+    expect(response.status).toBe(401);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'You have an unpaid or pending order, please try again later or cancel it',
+      409,
+      'WALLET_DEPOSIT_UNAVAILABLE',
+    ],
+    [
+      '您有未付款或开通中的订单，请稍后再试或将其取消',
+      409,
+      'WALLET_DEPOSIT_UNAVAILABLE',
+    ],
+    [
+      'Failed to create order, deposit amount must be greater than 0',
+      422,
+      'WALLET_DEPOSIT_AMOUNT_INVALID',
+    ],
+    [
+      'Deposit amount too large, please contact the administrator',
+      422,
+      'WALLET_DEPOSIT_AMOUNT_INVALID',
+    ],
+    ['Failed to create order', 502, 'WALLET_DEPOSIT_CREATE_FAILED'],
+    ['订单创建失败', 502, 'WALLET_DEPOSIT_CREATE_FAILED'],
+    ['Unknown deposit state', 502, 'UPSTREAM_ERROR'],
+  ] as const)('normalizes %s without leaking it', async (message, status, code) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ message, internal: 'private-deposit-state' }, 500)
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const response = await createDeposit({ amountMinor: 1_000 });
+    const text = await response.text();
+    expect(response.status).toBe(status);
+    expect(text).toContain(code);
+    expect(text).not.toContain(message);
+    expect(text).not.toContain('private-deposit-state');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('normalizes timeout without retry or recovery reads and logs no amount', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('timed out deposit 137', 'TimeoutError'));
+    vi.stubGlobal('fetch', fetcher);
+    const response = await createDeposit({ amountMinor: 137 });
+    expect(response.status).toBe(504);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'UPSTREAM_TIMEOUT' },
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+    const logged = JSON.stringify(error.mock.calls);
+    expect(logged).not.toContain('137');
+    expect(logged).not.toContain('opaque-token');
+    expect(logged).not.toContain('backend.example');
+  });
+});
