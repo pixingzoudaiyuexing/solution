@@ -31,6 +31,7 @@ import { noticesRouter } from './v1/notices';
 import { trafficRouter } from './v1/traffic';
 import { referralsRouter } from './v1/referrals';
 import { giftCardsRouter } from './v1/gift-cards';
+import { walletRouter } from './v1/wallet';
 
 const emailSchema = z.string().trim().email().max(254);
 const loginRequestSchema = z
@@ -190,5 +191,6 @@ v1Router.route('/notices', noticesRouter);
 v1Router.route('/traffic', trafficRouter);
 v1Router.route('/referrals', referralsRouter);
 v1Router.route('/gift-cards', giftCardsRouter);
+v1Router.route('/wallet', walletRouter);
 
 export { v1Router };

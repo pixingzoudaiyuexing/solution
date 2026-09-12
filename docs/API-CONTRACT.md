@@ -14,6 +14,7 @@
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
 | `PATCH /api/v1/me/preferences`         | Yes            | `user/update`                   |
 | `GET /api/v1/me/stats`                 | Yes            | `user/getStat`                  |
+| `GET /api/v1/wallet`                   | Yes            | `user/info`                     |
 | `GET /api/v1/products`                 | Yes            | `user/plan/fetch`               |
 | `GET /api/v1/orders`                   | Yes            | `user/order/fetch`              |
 | `POST /api/v1/orders`                  | Yes            | `user/order/save`               |
@@ -1355,7 +1356,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2Q 增加 Advance Subscription Period 后，本文件顶部矩阵包含 38 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2T 增加 Wallet Balance Read 后，本文件顶部矩阵包含 39 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1657,3 +1658,30 @@ Advance 不是免费延长订阅。成功时 V2Board 会把 `u/d` 归零，并�
 Advance 是非幂等 subscription state mutation。Gateway 不自动 retry，也不依赖“第二次通常会失败”作为幂等保证。`UPSTREAM_TIMEOUT` 或 mutation 上无法确认结果的 `UPSTREAM_ERROR` 可能发生在 V2Board commit 后；Client 不得立即重复提交，应先调用 `GET /api/v1/subscription/overview` 检查当前 authoritative `traffic`、`expiresAt` 和 `resetDay`。Gateway 不自动 recovery read，也不推断第一次请求一定成功或失败。
 
 V2Board 拥有 transaction、rollback、`u/d` 更新和 `expired_at` 计算。Gateway 保持 stateless，不增加 KV、D1、Durable Objects、Redis、数据库、mutation state、previous-expiry cache 或 idempotency key。Existing subscription metadata、overview、credential rotation、access streaming、User-Agent forwarding 和 header allowlist 保持不变。
+
+## Phase 2T Wallet Balance Read
+
+```http
+GET /api/v1/wallet
+Authorization: Bearer <opaque-token>
+```
+
+Adapter 只调用一次官方 `GET user/info`，严格解析 `data.balance` 并忽略其余 User Model 字段。
+
+```json
+{
+  "ok": true,
+  "data": { "balanceMinor": 12345 },
+  "requestId": "request-id"
+}
+```
+
+`balanceMinor` 是 V2Board 当前用户的站内余额，原样使用官方整数 minor unit。Gateway 不执行 `/100`、`*100`、货币换算、浮点转换，也不从 Order、commission、pending deposit 或其他数据推导余额。官方 `v2_user.balance` 使用 signed INT storage；Public schema fail closed 地只接受业务合法的 `0..2147483647` 整数。
+
+Wallet DTO 只包含 `balanceMinor`。`email`、UUID、Telegram ID、`commission_balance`、commission rate、discount、plan、device、登录/创建时间和 raw User Model 均不会进入响应。Commission balance 继续属于 Referrals domain，不与 Wallet balance 相加。
+
+缺少或无效 Bearer 分别使用 `AUTH_REQUIRED` / `AUTH_FAILED`。负数、浮点、numeric string、null、缺失 balance、HTML、invalid JSON、用户缺失或其他 malformed upstream response fail closed 为 `502 UPSTREAM_ERROR`；timeout 为 `504 UPSTREAM_TIMEOUT`。所有响应使用 `Cache-Control: no-store`。
+
+V2Board 继续拥有 Wallet 的全部 mutation，包括 deposit、commission transfer、Gift Card、订单余额抵扣以及 cancellation/refund 恢复。Gateway 不创建 ledger、不缓存 balance、不保存 snapshot，也不增加 KV、D1、Durable Objects、Redis 或数据库。本 Phase 不提供 Wallet Deposit 或任何其他资金 mutation。
+
+现有 `GET /api/v1/me` DTO 保持不变，仍只包含 `email`、`expiresAt` 和 `status`。
