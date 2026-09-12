@@ -5,6 +5,7 @@ import {
 } from '../../adapters/v2board/factory';
 import { V2BoardSubscriptionAdapter } from '../../adapters/v2board/subscription';
 import { V2BoardSubscriptionOverviewAdapter } from '../../adapters/v2board/subscription-overview';
+import { V2BoardSubscriptionPeriodAdapter } from '../../adapters/v2board/subscription-period';
 import {
   V2BoardSubscriptionUnavailableError,
   V2BoardTimeoutError,
@@ -14,6 +15,7 @@ import type {
   SubscriptionAccessSuccessResponse,
   SubscriptionAccessRotationSuccessResponse,
   SubscriptionOverviewSuccessResponse,
+  SubscriptionPeriodAdvanceSuccessResponse,
 } from '../../contract/v1/subscription';
 import { requestId } from '../../http/request-id';
 import {
@@ -107,6 +109,20 @@ subscriptionRouter.post('/rotate-access', requireAuthorization, async (c) => {
       rotated: true,
       accessUrl: accessUrl(publicOrigin, token),
     },
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.post('/advance-period', requireAuthorization, async (c) => {
+  const periodAdapter = new V2BoardSubscriptionPeriodAdapter(
+    createV2BoardClient(c.env)
+  );
+  const data = await periodAdapter.advance(c.get('authToken'));
+  const response: SubscriptionPeriodAdvanceSuccessResponse = {
+    ok: true,
+    data,
     requestId: requestId(c),
   };
   c.header('Cache-Control', 'no-store');

@@ -20,6 +20,16 @@ export interface SubscriptionAccessRotationSuccessResponse {
   requestId: string;
 }
 
+export interface SubscriptionPeriodAdvanced {
+  advanced: true;
+}
+
+export interface SubscriptionPeriodAdvanceSuccessResponse {
+  ok: true;
+  data: SubscriptionPeriodAdvanced;
+  requestId: string;
+}
+
 export interface SubscriptionOverviewProduct {
   id: string;
   name: string;

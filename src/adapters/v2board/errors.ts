@@ -152,6 +152,34 @@ export class V2BoardSubscriptionRotationError extends Error {
   }
 }
 
+export class V2BoardSubscriptionPeriodAdvanceDisabledError extends Error {
+  constructor() {
+    super('V2Board subscription period advance is disabled');
+    this.name = 'V2BoardSubscriptionPeriodAdvanceDisabledError';
+  }
+}
+
+export class V2BoardSubscriptionTrafficNotExhaustedError extends Error {
+  constructor() {
+    super('V2Board subscription traffic is not exhausted');
+    this.name = 'V2BoardSubscriptionTrafficNotExhaustedError';
+  }
+}
+
+export class V2BoardSubscriptionPeriodAdvanceUnavailableError extends Error {
+  constructor() {
+    super('V2Board subscription period cannot be advanced');
+    this.name = 'V2BoardSubscriptionPeriodAdvanceUnavailableError';
+  }
+}
+
+export class V2BoardSubscriptionPeriodAdvanceError extends Error {
+  constructor() {
+    super('V2Board subscription period advance failed');
+    this.name = 'V2BoardSubscriptionPeriodAdvanceError';
+  }
+}
+
 export class V2BoardTicketNotFoundError extends Error {
   constructor() {
     super('V2Board ticket not found');

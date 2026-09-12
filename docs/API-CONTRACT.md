@@ -26,6 +26,7 @@
 | `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
 | `POST /api/v1/subscription/rotate-access` | Yes         | `user/order/fetch` + `GET user/resetSecurity` |
+| `POST /api/v1/subscription/advance-period` | Yes        | `POST user/newPeriod`            |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /api/v1/tickets`                  | Yes            | `user/ticket/fetch`             |
@@ -921,7 +922,7 @@ Adapter 只调用官方 `GET user/getSubscribe`。Overview 是当前套餐、流
 | `reset_day` | `resetDay` | 非负整数或 `null`；Gateway 不自行计算 |
 | `allow_new_period` | `renewalAllowed` | 严格接受官方 `0/1` 及配置序列化的 `"0"/"1"` 并转换 boolean |
 
-`renewalAllowed` 只表达上游接口返回的续期配置，不保证某次 renewal 一定成功。Gateway 不提供 remaining bytes、used percent、over-quota、剩余天数、expired boolean或 grace period等派生字段。
+`renewalAllowed` 只表示 V2Board `allow_new_period` 功能开关已开启，不保证当前用户此刻一定能 advance。实际资格还取决于流量是否耗尽、reset method/day/period、剩余有效期和其他 V2Board 状态，并由 `POST /api/v1/subscription/advance-period` 调用官方 `newPeriod` 时权威判断。Gateway 不提供 remaining bytes、used percent、over-quota、剩余天数、expired boolean或 grace period等派生字段。
 
 Public response 不包含 V2Board `token`、`subscribe_url`、`uuid`、email、完整 plan、`group_id`、内部 user ID 或 server配置。上游缺少必填字段、plan 与 `plan_id` 不一致、负数/浮点/超出安全整数、malformed timestamp/plan/device/reset/renewal flag均 fail closed为 `502 UPSTREAM_ERROR`；认证和 timeout继续使用现有 `AUTH_FAILED` 与 `UPSTREAM_TIMEOUT`。
 
@@ -1332,7 +1333,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2P 增加 Subscription Credential Rotation 后，本文件顶部矩阵包含 37 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2Q 增加 Advance Subscription Period 后，本文件顶部矩阵包含 38 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
 
 v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/Checkout、Promotions、Subscription、Tickets、Notices、Traffic 和 Referrals。V2Board 继续拥有用户、订单、支付、subscription、ticket、notice、traffic、invite 与 commission 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -1342,7 +1343,7 @@ v1 已实现范围包括 Authentication、Account、Catalog、Orders、Billing/C
 - **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
-Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin、`newPeriod` 和直接暴露 V2Board `resetSecurity` controller 命名不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
+Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 V2Board `newPeriod` / `resetSecurity` controller 命名不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。
 
 ## Phase 2M Gift Card Redemption
 
@@ -1587,3 +1588,50 @@ Rotation 会同时替换 V2Board token 和 UUID。旧 subscription URL 将失效
 Rotation 不可自动重试：盲目重试会再次生成 credential，使 Client 可能刚收到的新 URL 立即失效。`UPSTREAM_TIMEOUT` 或 mutation 上的未知 `UPSTREAM_ERROR` 都可能发生在 V2Board 保存后；Client 应先调用 `GET /api/v1/subscription` 获取当前权威 solution access URL，而不是立即再次 rotate。Gateway 不执行自动 recovery read、不推断第一次结果，也不保存 current/previous token、rotation state 或 idempotency state。
 
 Gateway 保持 stateless；不增加 KV、D1、Durable Objects、Redis、数据库或 idempotency key。Existing subscription metadata、overview、verbatim streaming、User-Agent forwarding 和 response header allowlist 均保持不变。
+
+## Phase 2Q Advance Subscription Period
+
+```http
+POST /api/v1/subscription/advance-period
+Authorization: Bearer <opaque-token>
+```
+
+Request body：无。Public `advance-period` 表示在 V2Board 允许的条件下提前进入下一流量周期，不暴露 upstream `newPeriod` 命名。GET 同路径不是有效 API，也不会触发 mutation。
+
+Adapter 直接且只调用一次：
+
+```http
+POST user/newPeriod
+```
+
+请求不发送 body，也不发送 `reset_day`、`reset_period`、`expires_at`、`u`、`d`、`plan_id` 或 `transfer_enable`。Gateway 不先调用 overview、order、getSubscribe 或其他资格查询；是否允许 advance、流量是否耗尽、reset method/day/period 与剩余有效期全部由 V2Board 在 transaction 中权威判断和计算。
+
+只有官方 response 严格满足 `{ "data": true }` 才视为成功：
+
+```json
+{
+  "ok": true,
+  "data": { "advanced": true },
+  "requestId": "request-id"
+}
+```
+
+Gateway 不在成功后执行第二次 read，也不返回新旧 expiresAt、reset days、流量或 Plan 内部配置。Client 如需最新状态，应重新请求 `GET /api/v1/subscription/overview`。
+
+Advance 不是免费延长订阅。成功时 V2Board 会把 `u/d` 归零，并按自己的 reset day/period 算法减少 `expired_at`，因此 Public `expiresAt` 可能变早。Gateway 不复制 `transfer_enable > u+d`、`UserService::getResetDay/getResetPeriod`、month/year switch、86400 秒换算或任何有效期计算。
+
+| HTTP | Code | 场景 |
+| --- | --- | --- |
+| 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
+| 409 | `SUBSCRIPTION_PERIOD_ADVANCE_DISABLED` | 官方 exact `Renewal is not allowed` |
+| 409 | `SUBSCRIPTION_TRAFFIC_NOT_EXHAUSTED` | 官方 exact error 表明仍有剩余流量 |
+| 409 | `SUBSCRIPTION_PERIOD_ADVANCE_UNAVAILABLE` | reset policy 或剩余有效期使当前状态不可 advance |
+| 502 | `SUBSCRIPTION_PERIOD_ADVANCE_FAILED` | 官方 exact `Save failed` / `保存失败` |
+| 502 | `UPSTREAM_ERROR` | invalid reset period、用户缺失、malformed success、HTML、invalid JSON 或未知错误 |
+| 504 | `UPSTREAM_TIMEOUT` | mutation 结果未知 |
+
+官方 `99f8526` 的功能禁用、流量未耗尽、advance 不可用和 invalid reset period 字符串在 translation JSON 中没有本地化条目，staging 的禁用错误也验证为原始英文；Adapter 只按源码中的完整 exact 英文匹配。保存失败同时接受官方英文和已确认中文翻译。所有 raw V2Board/Laravel message 均不进入 Public response。
+
+Advance 是非幂等 subscription state mutation。Gateway 不自动 retry，也不依赖“第二次通常会失败”作为幂等保证。`UPSTREAM_TIMEOUT` 或 mutation 上无法确认结果的 `UPSTREAM_ERROR` 可能发生在 V2Board commit 后；Client 不得立即重复提交，应先调用 `GET /api/v1/subscription/overview` 检查当前 authoritative `traffic`、`expiresAt` 和 `resetDay`。Gateway 不自动 recovery read，也不推断第一次请求一定成功或失败。
+
+V2Board 拥有 transaction、rollback、`u/d` 更新和 `expired_at` 计算。Gateway 保持 stateless，不增加 KV、D1、Durable Objects、Redis、数据库、mutation state、previous-expiry cache 或 idempotency key。Existing subscription metadata、overview、credential rotation、access streaming、User-Agent forwarding 和 header allowlist 保持不变。

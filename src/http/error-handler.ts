@@ -30,7 +30,11 @@ import {
   V2BoardReferralCodeLimitError,
   V2BoardRegistrationUnavailableError,
   V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionPeriodAdvanceDisabledError,
+  V2BoardSubscriptionPeriodAdvanceError,
+  V2BoardSubscriptionPeriodAdvanceUnavailableError,
   V2BoardSubscriptionRotationError,
+  V2BoardSubscriptionTrafficNotExhaustedError,
   V2BoardTicketCloseError,
   V2BoardTicketCreateError,
   V2BoardTicketNotFoundError,
@@ -148,6 +152,50 @@ export const errorHandler: ErrorHandler = (err, c) => {
       publicErrorResponse(
         'SUBSCRIPTION_ROTATION_FAILED',
         'Unable to rotate subscription access',
+        id
+      ),
+      502
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionPeriodAdvanceDisabledError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_PERIOD_ADVANCE_DISABLED',
+        'Subscription period advance is unavailable',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionTrafficNotExhaustedError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_TRAFFIC_NOT_EXHAUSTED',
+        'Subscription traffic has not been exhausted',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionPeriodAdvanceUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_PERIOD_ADVANCE_UNAVAILABLE',
+        'Subscription period cannot be advanced',
+        id
+      ),
+      409
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionPeriodAdvanceError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_PERIOD_ADVANCE_FAILED',
+        'Unable to advance subscription period',
         id
       ),
       502

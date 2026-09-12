@@ -17,11 +17,11 @@
 V1 CONTRACT BASELINE FROZEN
 ```
 
-Phase 2P 以向后兼容的 additive extension 新增 Subscription Credential Rotation，当前真实 source route tree 包含 37 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
+Phase 2Q 以向后兼容的 additive extension 新增 Advance Subscription Period，当前真实 source route tree 包含 38 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 
-Telegram、Knowledge / 知识库和 multi-level commission distribution 是明确且永久的 Non-goals。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有，Gateway 不 pre-check、不 retry、不保存资金或提现状态。Subscription Rotation 复用已有 previous-purchaser eligibility，token/UUID 仍由 V2Board 生成和保存，Gateway 不保存 credential 或 rotation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin、`newPeriod` 和直接暴露 upstream `resetSecurity` 命名不属于 v1 Public Contract。
+Telegram、Knowledge / 知识库和 multi-level commission distribution 是明确且永久的 Non-goals。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation 同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
