@@ -1820,6 +1820,7 @@ GET /api/v1/config/onboarding
     "antiBot": {
       "enabled": false,
       "provider": null,
+      "mode": null,
       "siteKey": null
     }
   },
@@ -1833,11 +1834,24 @@ GET /api/v1/config/onboarding
 | `is_email_verify` | `emailVerificationRequired` | 严格 `0/1` 映射为 boolean |
 | `is_invite_force` | `inviteCodeRequired` | 严格 `0/1` 映射为 boolean |
 | `email_whitelist_suffix` | `emailSuffixWhitelist` | `0` 映射为 `null`；array item trim 后原样返回，不自行补 `@` 或 `.` |
-| `is_recaptcha` / `recaptcha_site_key` | `antiBot` | enabled 时 provider 为 `recaptcha` 且 site key 必须是非空受限字符串；disabled 时 provider/siteKey 始终为 `null` |
+| `is_recaptcha` / `recaptcha_site_key` | `antiBot` | enabled 时 provider 为 `recaptcha`、mode 为 `v2-checkbox`，且 site key 必须是非空受限字符串；disabled 时 provider/mode/siteKey 始终为 `null` |
 
 Onboarding Config 只描述 registration requirements，不承诺 registration 当前一定开放。Public Contract 不提供 `registrationOpen` 或等价字段；实际注册资格仍由 `POST /api/v1/auth/register` 和 V2Board 权威裁决。
 
-`antiBot.provider="recaptcha"` 是当前 Official V2Board 的 capability discovery，不会把 Auth mutation 绑定到 provider。`POST /api/v1/auth/email-code` 和 `POST /api/v1/auth/register` 仍只接受 provider-neutral `challengeToken`，Adapter 内部继续映射为 `recaptcha_data`。本 Phase 不增加 `recaptchaData`、challenge endpoint 或 Gateway anti-bot state。
+Enabled 状态的完整 `antiBot` DTO 为：
+
+```json
+{
+  "enabled": true,
+  "provider": "recaptcha",
+  "mode": "v2-checkbox",
+  "siteKey": "public-site-key"
+}
+```
+
+`mode` 当前只有 `"v2-checkbox"` 一个枚举值，表示 pinned Official V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88` 的 Google reCAPTCHA v2 visible checkbox / explicit-render token acquisition model。Client Application 加载 reCAPTCHA client，使用 Public `siteKey` 显式渲染可见 checkbox，在 widget callback 成功后获取 token，并将该 token 作为 `challengeToken` 提交。本契约不要求特定 React package，Google JavaScript 也不是 solution runtime dependency。如果未来 Official V2Board 改变 acquisition model，必须重新审计，不能静默改变该 Public mode。
+
+`antiBot.provider="recaptcha"` 和 `mode="v2-checkbox"` 只是 capability discovery，不会把 Auth mutation 字段绑定到 provider。`POST /api/v1/auth/email-code` 和 `POST /api/v1/auth/register` 仍只接受 provider-neutral `challengeToken`，Adapter 内部继续映射为 `recaptcha_data`。Public mutation 不接受 `recaptchaData`、`recaptchaToken` 或 `gRecaptchaResponse`；`POST /api/v1/auth/password/reset` 也不新增 `challengeToken`。V2Board 继续使用自己的 secret 执行权威验证，solution 只读取 public `recaptcha_site_key`，不读取或暴露 `recaptcha_key`。本 Phase 不增加 challenge endpoint、Gateway CAPTCHA verification 或 anti-bot state。
 
 Public DTO 不包含 Official guest config 的 app URL、description、logo 或 raw config，也不请求 Terms URL 内容。
 

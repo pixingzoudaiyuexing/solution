@@ -51,6 +51,7 @@ describe('V2BoardConfigAdapter onboarding config', () => {
       antiBot: {
         enabled: true,
         provider: 'recaptcha',
+        mode: 'v2-checkbox',
         siteKey: 'public-site-key',
       },
     });
@@ -85,7 +86,7 @@ describe('V2BoardConfigAdapter onboarding config', () => {
       emailVerificationRequired: false,
       inviteCodeRequired: false,
       emailSuffixWhitelist: null,
-      antiBot: { enabled: false, provider: null, siteKey: null },
+      antiBot: { enabled: false, provider: null, mode: null, siteKey: null },
     });
   });
 

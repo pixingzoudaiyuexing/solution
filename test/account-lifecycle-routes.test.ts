@@ -56,6 +56,8 @@ describe('POST /api/v1/auth/email-code', () => {
     ['empty challenge token', { email: 'user@example.com', purpose: 'register', challengeToken: '' }],
     ['oversized challenge token', { email: 'user@example.com', purpose: 'register', challengeToken: 'x'.repeat(4097) }],
     ['provider-specific legacy field', { email: 'user@example.com', purpose: 'register', recaptchaData: 'legacy-value' }],
+    ['provider-specific token field', { email: 'user@example.com', purpose: 'register', recaptchaToken: 'legacy-value' }],
+    ['provider-specific response field', { email: 'user@example.com', purpose: 'register', gRecaptchaResponse: 'legacy-value' }],
   ])('rejects %s before upstream', async (_case, body) => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
@@ -112,6 +114,8 @@ describe('POST /api/v1/auth/register', () => {
     ['long invite', { email: 'user@example.com', password: 'password123', inviteCode: 'x'.repeat(256) }],
     ['bad challenge token', { email: 'user@example.com', password: 'password123', challengeToken: 1 }],
     ['provider-specific legacy field', { email: 'user@example.com', password: 'password123', recaptchaData: 'legacy-value' }],
+    ['provider-specific token field', { email: 'user@example.com', password: 'password123', recaptchaToken: 'legacy-value' }],
+    ['provider-specific response field', { email: 'user@example.com', password: 'password123', gRecaptchaResponse: 'legacy-value' }],
   ])('rejects %s before upstream', async (_case, body) => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
@@ -166,6 +170,7 @@ describe('POST /api/v1/auth/password/reset', () => {
     ['bad email code', { email: 'user@example.com', emailCode: '12345', newPassword: 'new-password123' }],
     ['short password', { email: 'user@example.com', emailCode: '123456', newPassword: '1234567' }],
     ['long password', { email: 'user@example.com', emailCode: '123456', newPassword: 'x'.repeat(65) }],
+    ['challenge token', { email: 'user@example.com', emailCode: '123456', newPassword: 'new-password123', challengeToken: 'token' }],
   ])('rejects %s before upstream', async (_case, body) => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);

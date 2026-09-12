@@ -1,8 +1,10 @@
 export type AntiBotProvider = 'recaptcha';
+export type AntiBotMode = 'v2-checkbox';
 
 export interface AntiBotConfig {
   enabled: boolean;
   provider: AntiBotProvider | null;
+  mode: AntiBotMode | null;
   siteKey: string | null;
 }
 

@@ -59,6 +59,7 @@ describe('GET /api/v1/config/onboarding', () => {
         antiBot: {
           enabled: true,
           provider: 'recaptcha',
+          mode: 'v2-checkbox',
           siteKey: 'public-site-key',
         },
       },

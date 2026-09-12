@@ -25,7 +25,7 @@ V2Board-first Business Ownership：官方 V2Board 已支持的业务规则、金
 
 Phase 2V 的 Product Detail 只将 `GET /api/v1/products/{id}` 映射为一次 `GET user/plan/fetch?id={id}`。hidden/current/renewable Plan 的可见性和最终购买资格仍完全由 V2Board 决定；Gateway 不预读用户或套餐、不计算容量、不比较 current plan，也不复制 `show` / `renew` 逻辑。详情成功不代表 Order Create 成功，`user/order/save` 仍是最终权威。
 
-Phase 2W 为 onboarding requirements、current preferences 和 currency 提供三个彼此独立的最小白名单 DTO。每个 route 只请求一个 Official endpoint；Gateway 不推断 registration availability、不聚合 mega-config、不暴露 app URL/Stripe/Telegram/withdrawal/multi-level commission 配置，也不缓存 config 或 preference state。Anti-bot capability discovery 可返回当前 `recaptcha` provider，Auth mutation 契约仍保持 provider-neutral `challengeToken`。
+Phase 2W 为 onboarding requirements、current preferences 和 currency 提供三个彼此独立的最小白名单 DTO。每个 route 只请求一个 Official endpoint；Gateway 不推断 registration availability、不聚合 mega-config、不暴露 app URL/Stripe/Telegram/withdrawal/multi-level commission 配置，也不缓存 config 或 preference state。针对当前 pinned Official V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`，anti-bot capability discovery 在 enabled 时稳定返回 `provider="recaptcha"` 与 `mode="v2-checkbox"`；该 classification 来自 Official default frontend 的 visible checkbox / explicit-render acquisition model，不增加其他 provider/mode。Auth mutation 契约仍保持 provider-neutral `challengeToken`，Adapter 映射到 `recaptcha_data`，V2Board 继续执行权威验证，Gateway 不持有 anti-bot state。
 
 Wallet Balance Read 只把官方 `user/info.balance` 原样映射为 `balanceMinor`。Wallet Deposit 仅映射 V2Board 原生 `plan_id=0/period=deposit` Order Create；Gateway 不计算、合并、缓存或修改余额，不计算 bonus，也不持有 checkout、callback 或支付状态。Deposit、commission transfer、Gift Card、订单抵扣和 cancellation/refund 继续由 V2Board 持有。
 

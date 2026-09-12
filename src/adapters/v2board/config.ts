@@ -93,8 +93,13 @@ export class V2BoardConfigAdapter extends V2BoardAdapterBase {
           ? null
           : config.email_whitelist_suffix,
       antiBot: antiBotEnabled
-        ? { enabled: true, provider: 'recaptcha', siteKey: siteKey ?? null }
-        : { enabled: false, provider: null, siteKey: null },
+        ? {
+            enabled: true,
+            provider: 'recaptcha',
+            mode: 'v2-checkbox',
+            siteKey: siteKey ?? null,
+          }
+        : { enabled: false, provider: null, mode: null, siteKey: null },
     };
   }
 
