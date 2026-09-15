@@ -73,7 +73,7 @@ function publicIcon(icon: string | null | undefined, hiddenOrigin: string): stri
 }
 
 export interface V2BoardCheckoutContext {
-  trustedOrigin?: string;
+  frontendOrigin?: string;
   trustedUserAgent?: string;
 }
 
@@ -125,7 +125,7 @@ export class V2BoardPaymentAdapter extends V2BoardAdapterBase {
         trade_no: orderId,
         method: Number(request.paymentMethodId),
       }),
-      trustedOrigin: context.trustedOrigin,
+      frontendOrigin: context.frontendOrigin,
       trustedUserAgent: context.trustedUserAgent,
     });
     this.assertAuthenticatedResponse(response);

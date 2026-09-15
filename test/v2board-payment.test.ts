@@ -83,7 +83,7 @@ describe('V2BoardPaymentAdapter', () => {
         'order-001',
         { paymentMethodId: '3' },
         {
-          trustedOrigin: 'https://client.example',
+          frontendOrigin: 'https://client.example',
           trustedUserAgent: 'Mozilla/5.0 (iPhone; Mobile)',
         }
       )

@@ -1,175 +1,47 @@
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/index';
 import { strictCors } from '../src/security/cors';
 
 const env = {
-  FRONTEND_ORIGINS: 'https://app.example,https://admin.example',
-};
-const additiveEnv = {
-  FRONTEND_ORIGINS: 'https://app.example,https://same.example',
-  FRONTEND_ORIGINS_EXTRA: 'https://same.example,https://aureole.example',
+  V2BOARD_BASE_URL: 'https://backend.example/api/v1/',
 };
 
-describe('gateway HTTP policy', () => {
-  it('allows PATCH preflight from an exact configured origin', async () => {
-    const response = await app.request(
-      '/api/v1/me/preferences',
-      {
-        method: 'OPTIONS',
-        headers: {
-          Origin: 'https://app.example',
-          'Access-Control-Request-Method': 'PATCH',
-          'Access-Control-Request-Headers': 'authorization,content-type',
-        },
-      },
-      env
-    );
-
-    expect(response.status).toBe(204);
-    expect(response.headers.get('access-control-allow-origin')).toBe(
-      'https://app.example'
-    );
-    expect(response.headers.get('access-control-allow-methods')).toContain(
-      'PATCH'
-    );
-    expect(response.headers.get('access-control-allow-headers')).toContain(
-      'Content-Type'
-    );
-    expect(response.headers.get('access-control-allow-headers')).toContain(
-      'Authorization'
-    );
-    expect(response.headers.get('access-control-allow-credentials')).toBe(
-      'true'
-    );
-    expect(response.headers.get('vary')).toContain('Origin');
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
   });
+}
 
-  it('does not allow PATCH preflight from an unconfigured origin', async () => {
-    const response = await app.request(
-      '/api/v1/me/preferences',
-      {
-        method: 'OPTIONS',
-        headers: {
-          Origin: 'https://attacker.example',
-          'Access-Control-Request-Method': 'PATCH',
-          'Access-Control-Request-Headers': 'authorization,content-type',
-        },
-      },
-      env
-    );
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
-    expect(response.status).toBe(204);
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
-    expect(response.headers.has('access-control-allow-methods')).toBe(false);
-    expect(response.headers.has('access-control-allow-headers')).toBe(false);
-    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
-  });
-
-  it.each(['GET', 'POST'])('keeps %s preflight allowed', async (method) => {
-    const response = await app.request(
-      '/api/v1/not-implemented',
-      {
-        method: 'OPTIONS',
-        headers: {
-          Origin: 'https://app.example',
-          'Access-Control-Request-Method': method,
-        },
-      },
-      env
-    );
-
-    expect(response.status).toBe(204);
-    expect(response.headers.get('access-control-allow-methods')).toContain(method);
-  });
-
-  it('allows only an exact configured frontend origin', async () => {
-    const allowed = await app.request(
-      '/api/v1/not-implemented',
-      { headers: { Origin: 'https://app.example' } },
-      env
-    );
-    const denied = await app.request(
-      '/api/v1/not-implemented',
-      { headers: { Origin: 'https://attacker.example' } },
-      env
-    );
-
-    expect(allowed.headers.get('access-control-allow-origin')).toBe('https://app.example');
-    expect(allowed.headers.get('vary')).toContain('Origin');
-    expect(denied.headers.has('access-control-allow-origin')).toBe(false);
-  });
-
-  it.each(['https://app.example', 'https://aureole.example'])(
-    'allows an exact origin from the base or additive source: %s',
-    async (origin) => {
-      const response = await app.request(
-        '/api/v1/config/onboarding',
-        { headers: { Origin: origin } },
-        additiveEnv
-      );
-
-      expect(response.headers.get('access-control-allow-origin')).toBe(origin);
-      expect(response.headers.get('access-control-allow-credentials')).toBe(
-        'true'
-      );
-      expect(response.headers.get('vary')).toBe('Origin');
-    }
-  );
-
-  it('deduplicates origins across both configuration sources', async () => {
-    const response = await app.request(
-      '/api/v1/config/onboarding',
-      { headers: { Origin: 'https://same.example' } },
-      additiveEnv
-    );
-
-    expect(response.headers.get('access-control-allow-origin')).toBe(
-      'https://same.example'
-    );
-    expect(response.headers.get('access-control-allow-origin')).not.toContain(',');
-    expect(response.headers.get('vary')).toBe('Origin');
-  });
-
-  it.each(['*', 'not-a-url', 'javascript:alert(1)'])(
-    'ignores an invalid additive source without disabling a valid base origin: %s',
-    async (extra) => {
-      const allowed = await app.request(
-        '/api/v1/config/onboarding',
-        { headers: { Origin: 'https://app.example' } },
-        { FRONTEND_ORIGINS: 'https://app.example', FRONTEND_ORIGINS_EXTRA: extra }
-      );
-      const denied = await app.request(
-        '/api/v1/config/onboarding',
-        { headers: { Origin: 'https://attacker.example' } },
-        { FRONTEND_ORIGINS: 'https://app.example', FRONTEND_ORIGINS_EXTRA: extra }
-      );
-
-      expect(allowed.headers.get('access-control-allow-origin')).toBe(
-        'https://app.example'
-      );
-      expect(denied.headers.has('access-control-allow-origin')).toBe(false);
-    }
-  );
-
+describe('gateway public CORS policy', () => {
   it.each([
-    'https://aureole-cc-staging-3dc609.pages.dev.evil.example',
-    'https://evil-aureole-cc-staging-3dc609.pages.dev',
-    'http://aureole-cc-staging-3dc609.pages.dev',
-    'https://evil.example',
-  ])('rejects a non-exact Aureole origin: %s', async (origin) => {
+    'https://example-test-origin.invalid',
+    'https://another-frontend.example',
+  ])('allows browser interoperability from arbitrary Origin %s', async (origin) => {
     const response = await app.request(
-      '/api/v1/config/onboarding',
+      '/api/v1/not-implemented',
       { headers: { Origin: origin } },
-      {
-        FRONTEND_ORIGINS_EXTRA:
-          'https://aureole-cc-staging-3dc609.pages.dev',
-      }
+      env
     );
 
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
+    expect(response.status).toBe(404);
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
     expect(response.headers.has('access-control-allow-credentials')).toBe(false);
-    expect(response.headers.get('vary')).toBe('Origin');
+    expect(response.headers.get('vary') ?? '').not.toContain('Origin');
+  });
+
+  it('sets public CORS even when the request has no Origin header', async () => {
+    const response = await app.request('/api/v1/not-implemented', undefined, env);
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
   });
 
   it.each([
@@ -177,93 +49,122 @@ describe('gateway HTTP policy', () => {
     ['POST', '/api/v1/auth/login', 'content-type'],
     ['PATCH', '/api/v1/me/preferences', 'authorization,content-type'],
   ])(
-    'preserves %s preflight policy for the additive origin',
+    'preserves %s preflight without credentialed CORS',
     async (method, path, requestHeaders) => {
       const headers = new Headers({
-        Origin: 'https://aureole.example',
+        Origin: 'https://example-test-origin.invalid',
         'Access-Control-Request-Method': method,
       });
       if (requestHeaders) {
         headers.set('Access-Control-Request-Headers', requestHeaders);
       }
+
       const response = await app.request(
         path,
         { method: 'OPTIONS', headers },
-        additiveEnv
+        env
       );
 
       expect(response.status).toBe(204);
-      expect(response.headers.get('access-control-allow-origin')).toBe(
-        'https://aureole.example'
+      expect(response.headers.get('access-control-allow-origin')).toBe('*');
+      expect(response.headers.has('access-control-allow-credentials')).toBe(
+        false
       );
-      expect(response.headers.get('access-control-allow-credentials')).toBe(
-        'true'
+      expect(response.headers.get('access-control-allow-methods')).toBe(
+        'GET,POST,PATCH,OPTIONS'
       );
       expect(response.headers.get('access-control-allow-methods')).toContain(
         method
       );
-      expect(response.headers.get('access-control-allow-headers')).toContain(
-        'Content-Type'
+      expect(response.headers.get('access-control-allow-headers')).toBe(
+        'Content-Type,Authorization'
       );
-      expect(response.headers.get('access-control-allow-headers')).toContain(
-        'Authorization'
-      );
-      expect(response.headers.get('vary')).toBe('Origin');
+      expect(response.headers.get('access-control-max-age')).toBe('86400');
+      expect(response.headers.get('vary') ?? '').not.toContain('Origin');
     }
   );
 
-  it('fails closed when a wildcard is configured', async () => {
-    const response = await app.request(
-      '/api/v1/not-implemented',
-      { headers: { Origin: 'https://attacker.example' } },
-      { FRONTEND_ORIGINS: '*' }
-    );
-
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
-  });
-
-  it('removes CORS headers supplied by downstream responses', async () => {
-    const downstream = new Hono<{ Bindings: typeof env }>();
-    downstream.use('*', strictCors);
-    downstream.get('/', (c) => {
-      return c.text('ok', 200, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Expose-Headers': 'X-Internal-Header',
-      });
-    });
-
-    const response = await downstream.request(
-      '/',
-      { headers: { Origin: 'https://attacker.example' } },
-      env
-    );
-
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
-    expect(response.headers.has('access-control-expose-headers')).toBe(false);
-  });
-
-  it('strips downstream CORS headers before applying the additive allowlist', async () => {
-    const downstream = new Hono<{ Bindings: typeof additiveEnv }>();
+  it('strips downstream CORS and only removes Origin from Vary', async () => {
+    const downstream = new Hono();
     downstream.use('*', strictCors);
     downstream.get('/', (c) =>
       c.text('ok', 200, {
-        'Access-Control-Allow-Origin': 'https://attacker.example',
-        'Access-Control-Allow-Credentials': 'false',
-        'Access-Control-Expose-Headers': 'X-Internal-Header',
+        'Access-Control-Allow-Origin': 'https://internal.example',
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Headers': 'X-Internal',
+        'Access-Control-Allow-Methods': 'DELETE',
+        'Access-Control-Expose-Headers': 'X-Internal',
+        'Access-Control-Max-Age': '1',
+        Vary: 'Origin, Accept-Encoding',
       })
     );
 
-    const response = await downstream.request(
-      '/',
-      { headers: { Origin: 'https://aureole.example' } },
-      additiveEnv
+    const response = await downstream.request('/', {
+      headers: { Origin: 'https://example-test-origin.invalid' },
+    });
+
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
+    expect(response.headers.has('access-control-allow-headers')).toBe(false);
+    expect(response.headers.has('access-control-allow-methods')).toBe(false);
+    expect(response.headers.has('access-control-expose-headers')).toBe(false);
+    expect(response.headers.has('access-control-max-age')).toBe(false);
+    expect(response.headers.get('vary')).toBe('Accept-Encoding');
+  });
+});
+
+describe('CORS is not authentication', () => {
+  it.each([
+    ['no credential', {}],
+    ['cookie only', { Cookie: 'some-session=value' }],
+    ['malformed bearer', { Authorization: 'Basic not-a-bearer' }],
+  ])('keeps a protected route closed for %s', async (_case, extraHeaders) => {
+    const response = await app.request(
+      '/api/v1/me',
+      {
+        headers: {
+          Origin: 'https://evil.example',
+          ...extraHeaders,
+        },
+      },
+      env
     );
 
-    expect(response.headers.get('access-control-allow-origin')).toBe(
-      'https://aureole.example'
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'AUTH_REQUIRED' },
+    });
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
+  });
+
+  it('lets a valid Bearer reach the authenticated adapter from any Origin', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: {
+          email: 'user@example.com',
+          expired_at: null,
+          banned: 0,
+        },
+      })
     );
-    expect(response.headers.get('access-control-allow-credentials')).toBe('true');
-    expect(response.headers.has('access-control-expose-headers')).toBe(false);
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await app.request(
+      '/api/v1/me',
+      {
+        headers: {
+          Origin: 'https://new-disposable-frontend.example',
+          Authorization: 'Bearer opaque-token',
+        },
+      },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.has('access-control-allow-credentials')).toBe(false);
   });
 
   it('does not expose out-of-scope routes', async () => {

@@ -32,8 +32,8 @@ Wallet Balance Read 只把官方 `user/info.balance` 原样映射为 `balanceMin
 Telegram、Knowledge / 知识库和 multi-level commission distribution 是明确且永久的 Non-goals。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation 同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
 
 ## 运行时配置
-- `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
-- `FRONTEND_ORIGINS_EXTRA`: optional non-secret additive allowlist。它与既有 opaque secret `FRONTEND_ORIGINS` 使用同一个严格 parser，最终按 exact-origin Set union 生效；不支持 wildcard、substring、suffix 或域名模式。当前 patch 不读取、替换或迁移旧 secret；长期 Runtime Config Hygiene 可另行将旧配置迁移为可审计的 non-secret configuration。
+- Public API CORS 固定使用 `Access-Control-Allow-Origin: *`，不输出 `Access-Control-Allow-Credentials`。Frontend domain 是可替换的 browser client location，不是 authentication / authorization identity；更换域名不要求修改 solution 配置或重新部署 solution。
+- 历史 Cloudflare bindings `FRONTEND_ORIGINS` 与 `FRONTEND_ORIGINS_EXTRA` 可暂时继续存在，但 application runtime 不再读取。它们属于 dormant bindings；后续 Runtime Config Hygiene 可在独立、可审计任务中安全清理，本任务不读取、替换或删除其值。
 - `V2BOARD_BASE_URL`: V2Board API v1 基础地址，必须使用 HTTPS，例如 `https://backend.example/api/v1/`；末尾缺少 `/` 时客户端会自动补齐。
 - `V2BOARD_SUBSCRIBE_PATH`: V2Board 上固定的 subscription route，例如 `/client/subscribe`。必须是根相对路径；不能包含 origin、query、fragment、反斜线、percent encoding 或 traversal。
 

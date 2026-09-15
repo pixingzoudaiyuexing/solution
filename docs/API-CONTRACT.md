@@ -485,7 +485,7 @@ Success 根据 V2Board 当前支付动作返回以下三种 Public DTO 之一：
 
 未知 type、malformed payload 或不安全 redirect target 均 fail closed 为 `PAYMENT_CREATE_FAILED`。v1 不提供推测性的 `form` 类型，也不放行未经固定 fork 源码证明的自定义 redirect scheme。
 
-Checkout 仅在请求 `Origin` 与 `FRONTEND_ORIGINS` 精确匹配且使用 HTTPS 时转发该 Origin，以保留 V2Board 原生移动端 return 行为。Gateway 不转发浏览器提供的 `Host`、`X-Forwarded-Host`、`X-Original-Host` 或 `X-Forwarded-Proto`。桌面 QR 流程不依赖浏览器 return navigation。
+Checkout 仅在请求 `Origin` 是 exact HTTPS origin（不得包含 path、query、fragment 或 userinfo）时转发该值，作为 V2Board 构造 payment `return_url` 的 protocol metadata。Origin 不用于 authentication、authorization 或 ownership，也不依赖 frontend-domain allowlist。Gateway 不转发浏览器提供的 `Host`、`X-Forwarded-Host`、`X-Original-Host` 或 `X-Forwarded-Proto`。桌面 QR 流程不依赖浏览器 return navigation。
 
 固定 V2Board 的 `EPayQrcode` 依赖请求 `User-Agent` 区分 Desktop 与 Mobile：Desktop 返回 `type=0` QR 内容，Mobile 返回 `type=1` 打开目标。为保留该行为，solution 仅在 checkout 请求中转发经过校验的原始 `User-Agent`；必须是 Fetch Header 可表示的 ByteString、长度为 1 至 512 UTF-8 bytes，且不得包含 C0、C1 或 DEL 控制字符。缺失 `User-Agent` 时不向上游添加该 header，V2Board 按 Desktop 处理。普通 Header allowlist 不包含 `User-Agent`，其他 Gateway API 不转发它。
 

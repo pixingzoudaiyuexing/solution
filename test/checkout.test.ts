@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/index';
 
 const env = {
-  FRONTEND_ORIGINS: 'https://client.example,https://admin.example',
   V2BOARD_BASE_URL: 'https://private.example/api/v1/',
 };
 
@@ -28,7 +27,6 @@ async function checkout(
     userAgent?: string;
     headers?: HeadersInit;
     requestBody?: unknown;
-    frontendOriginsExtra?: string;
   } = {}
 ): Promise<{ response: Response; upstreamFetch: ReturnType<typeof vi.fn<typeof fetch>> }> {
   const upstreamFetch = vi
@@ -54,12 +52,7 @@ async function checkout(
         options.requestBody ?? { paymentMethodId: '3' }
       ),
     },
-    {
-      ...env,
-      ...(options.frontendOriginsExtra === undefined
-        ? {}
-        : { FRONTEND_ORIGINS_EXTRA: options.frontendOriginsExtra }),
-    }
+    env
   );
 
   return { response, upstreamFetch };
@@ -156,27 +149,16 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     expect(body).not.toContain(target);
   });
 
-  it('forwards an exact allowlisted frontend Origin only for checkout', async () => {
+  it.each([
+    'https://new-frontend.example',
+    'https://another-disposable-frontend.example:8443',
+  ])('forwards validated HTTPS Origin metadata for checkout: %s', async (origin) => {
     const { upstreamFetch } = await checkout(
       { type: 0, data: 'https://pay.example/qr/123' },
-      { origin: 'https://client.example' }
+      { origin }
     );
     const headers = new Headers(upstreamFetch.mock.calls[0][1]?.headers);
-    expect(headers.get('origin')).toBe('https://client.example');
-  });
-
-  it('forwards an exact additive frontend Origin for checkout', async () => {
-    const { upstreamFetch } = await checkout(
-      { type: 0, data: 'https://pay.example/qr/123' },
-      {
-        origin: 'https://aureole.example',
-        frontendOriginsExtra: 'https://aureole.example',
-      }
-    );
-
-    expect(
-      new Headers(upstreamFetch.mock.calls[0][1]?.headers).get('origin')
-    ).toBe('https://aureole.example');
+    expect(headers.get('origin')).toBe(origin);
   });
 
   it.each([
@@ -204,10 +186,10 @@ describe('POST /api/v1/orders/:id/checkout', () => {
   it('forwards an allowlisted Origin and validated User-Agent together', async () => {
     const { upstreamFetch } = await checkout(
       { type: 0, data: 'opaque-qr' },
-      { origin: 'https://client.example', userAgent: iphoneUserAgent }
+      { origin: 'https://new-frontend.example', userAgent: iphoneUserAgent }
     );
     const headers = new Headers(upstreamFetch.mock.calls[0][1]?.headers);
-    expect(headers.get('origin')).toBe('https://client.example');
+    expect(headers.get('origin')).toBe('https://new-frontend.example');
     expect(headers.get('user-agent')).toBe(iphoneUserAgent);
     expect(headers.has('host')).toBe(false);
     expect(headers.has('x-forwarded-host')).toBe(false);
@@ -225,11 +207,11 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     expect(upstreamFetch).not.toHaveBeenCalled();
   });
 
-  it('does not forward a disallowed Origin or spoofed host headers', async () => {
+  it('does not forward a malformed Origin or spoofed host headers', async () => {
     const { upstreamFetch } = await checkout(
       { type: 0, data: 'https://pay.example/qr/123' },
       {
-        origin: 'https://attacker.example',
+        origin: 'https://attacker.example/path',
         headers: {
           Host: 'attacker.example',
           'X-Forwarded-Host': 'attacker.example',
@@ -246,30 +228,27 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     expect(headers.has('x-forwarded-proto')).toBe(false);
   });
 
-  it('does not forward an allowlisted non-HTTPS Origin', async () => {
-    const upstreamFetch = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ type: 0, data: 'opaque-qr' }));
-    vi.stubGlobal('fetch', upstreamFetch);
-
-    const response = await app.request(
-      '/api/v1/orders/order-001/checkout',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer opaque-token',
-          'Content-Type': 'application/json',
-          Origin: 'http://localhost:3000',
-        },
-        body: JSON.stringify({ paymentMethodId: '3' }),
-      },
-      { ...env, FRONTEND_ORIGINS: 'http://localhost:3000' }
+  it.each([
+    'http://new-frontend.example',
+    'https://new-frontend.example/path',
+    'https://user:pass@new-frontend.example',
+  ])('does not forward invalid return-origin metadata: %s', async (origin) => {
+    const { response, upstreamFetch } = await checkout(
+      { type: 0, data: 'opaque-qr' },
+      { origin }
     );
 
     expect(response.status).toBe(200);
-    expect(new Headers(upstreamFetch.mock.calls[0][1]?.headers).has('origin')).toBe(
-      false
-    );
+    expect(
+      new Headers(upstreamFetch.mock.calls[0][1]?.headers).has('origin')
+    ).toBe(false);
+  });
+
+  it('does not invent checkout Origin metadata when the header is missing', async () => {
+    const { upstreamFetch } = await checkout({ type: 0, data: 'opaque-qr' });
+    expect(
+      new Headers(upstreamFetch.mock.calls[0][1]?.headers).has('origin')
+    ).toBe(false);
   });
 
   it('requires authentication before parsing checkout input', async () => {
@@ -279,7 +258,10 @@ describe('POST /api/v1/orders/:id/checkout', () => {
       '/api/v1/orders/order-001/checkout',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://new-frontend.example',
+        },
         body: '{}',
       },
       env

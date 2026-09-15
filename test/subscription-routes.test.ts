@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import app from '../src/index';
 
 const env = {
-  FRONTEND_ORIGINS: 'https://client.example',
   V2BOARD_BASE_URL: 'https://private.example/api/v1/',
   V2BOARD_SUBSCRIBE_PATH: '/hidden-subscribe',
   V2BOARD_ACCESS_CLIENT_ID: 'access-client-id',

@@ -12,7 +12,7 @@ const FORWARDED_HEADERS = ['accept', 'authorization', 'content-type'] as const;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface V2BoardRequestInit extends RequestInit {
-  trustedOrigin?: string;
+  frontendOrigin?: string;
   trustedUserAgent?: string;
 }
 
@@ -65,14 +65,14 @@ export class V2BoardClient {
   async fetch(path: string, init?: V2BoardRequestInit): Promise<Response> {
     const url = this.resolvePath(path);
     const headers = this.buildHeaders(init?.headers);
-    const { trustedOrigin, trustedUserAgent, ...fetchInit } = init ?? {};
+    const { frontendOrigin, trustedUserAgent, ...fetchInit } = init ?? {};
 
-    if (trustedOrigin !== undefined) {
-      const origin = new URL(trustedOrigin);
-      if (origin.origin !== trustedOrigin || origin.protocol !== 'https:') {
-        throw new Error('Trusted upstream Origin must be an HTTPS origin');
+    if (frontendOrigin !== undefined) {
+      const origin = new URL(frontendOrigin);
+      if (origin.origin !== frontendOrigin || origin.protocol !== 'https:') {
+        throw new Error('Frontend Origin must be an exact HTTPS origin');
       }
-      headers.set('Origin', trustedOrigin);
+      headers.set('Origin', frontendOrigin);
     }
     if (trustedUserAgent !== undefined) {
       headers.set('User-Agent', validateTrustedUserAgent(trustedUserAgent));

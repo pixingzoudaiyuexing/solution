@@ -1,5 +1,4 @@
 import type { MiddlewareHandler } from 'hono';
-import type { Env } from '../config/env';
 
 const UPSTREAM_CORS_HEADERS = [
   'Access-Control-Allow-Credentials',
@@ -10,46 +9,22 @@ const UPSTREAM_CORS_HEADERS = [
   'Access-Control-Max-Age',
 ] as const;
 
-function isValidOrigin(value: string): boolean {
-  if (value === '*') {
-    return false;
+function removeOriginVary(headers: Headers): void {
+  const vary = headers.get('Vary');
+  if (vary === null) return;
+
+  const remaining = vary
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value && value.toLowerCase() !== 'origin');
+  if (remaining.length === 0) {
+    headers.delete('Vary');
+  } else {
+    headers.set('Vary', remaining.join(', '));
   }
-
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === 'https:' || url.protocol === 'http:') &&
-      url.origin === value
-    );
-  } catch {
-    return false;
-  }
 }
 
-function allowedOrigins(...values: Array<string | undefined>): Set<string> {
-  return new Set(
-    values
-      .flatMap((value) => (value ?? '').split(','))
-      .map((origin) => origin.trim())
-      .filter(isValidOrigin)
-  );
-}
-
-export function isAllowedFrontendOrigin(
-  origin: string | undefined,
-  ...configuredOrigins: Array<string | undefined>
-): origin is string {
-  return Boolean(origin && allowedOrigins(...configuredOrigins).has(origin));
-}
-
-export const strictCors: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
-  const requestOrigin = c.req.header('Origin');
-  const originIsAllowed = isAllowedFrontendOrigin(
-    requestOrigin,
-    c.env.FRONTEND_ORIGINS,
-    c.env.FRONTEND_ORIGINS_EXTRA
-  );
-
+export const strictCors: MiddlewareHandler = async (c, next) => {
   if (c.req.method === 'OPTIONS') {
     c.res = new Response(null, { status: 204 });
   } else {
@@ -59,20 +34,13 @@ export const strictCors: MiddlewareHandler<{ Bindings: Env }> = async (c, next) 
   for (const header of UPSTREAM_CORS_HEADERS) {
     c.res.headers.delete(header);
   }
+  removeOriginVary(c.res.headers);
+  c.header('Access-Control-Allow-Origin', '*');
 
-  if (requestOrigin) {
-    c.header('Vary', 'Origin', { append: true });
-  }
-
-  if (originIsAllowed) {
-    c.header('Access-Control-Allow-Origin', requestOrigin);
-    c.header('Access-Control-Allow-Credentials', 'true');
-
-    if (c.req.method === 'OPTIONS') {
-      c.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-      c.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-      c.header('Access-Control-Max-Age', '86400');
-    }
+  if (c.req.method === 'OPTIONS') {
+    c.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+    c.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    c.header('Access-Control-Max-Age', '86400');
   }
 
   return c.res;

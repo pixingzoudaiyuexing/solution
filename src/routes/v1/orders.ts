@@ -24,7 +24,7 @@ import {
   requireAuthorization,
   type GatewayContext,
 } from '../../security/authorization';
-import { isAllowedFrontendOrigin } from '../../security/cors';
+import { validatedHttpsRequestOrigin } from '../../security/origin';
 import { validateTrustedUserAgent } from '../../security/user-agent';
 
 const ordersRouter = new Hono<GatewayContext>();
@@ -161,13 +161,7 @@ ordersRouter.post('/:id/checkout', requireAuthorization, async (c) => {
   }
 
   const requestOrigin = c.req.header('Origin');
-  const trustedOrigin = isAllowedFrontendOrigin(
-    requestOrigin,
-    c.env.FRONTEND_ORIGINS,
-    c.env.FRONTEND_ORIGINS_EXTRA
-  ) && requestOrigin.startsWith('https://')
-    ? requestOrigin
-    : undefined;
+  const frontendOrigin = validatedHttpsRequestOrigin(requestOrigin);
   const requestUserAgent = c.req.header('User-Agent');
   let trustedUserAgent: string | undefined;
   if (requestUserAgent !== undefined) {
@@ -185,7 +179,7 @@ ordersRouter.post('/:id/checkout', requireAuthorization, async (c) => {
     c.get('authToken'),
     parsedId.data,
     parsedBody.data,
-    { trustedOrigin, trustedUserAgent }
+    { frontendOrigin, trustedUserAgent }
   );
   const response: CheckoutSuccessResponse = {
     ok: true,

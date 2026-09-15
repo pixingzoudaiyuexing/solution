@@ -27,9 +27,6 @@
       },
       "V2BOARD_SUBSCRIBE_PATH": {
         "description": "V2Board subscription path, usually `/api/v1/client/subscribe`."
-      },
-      "FRONTEND_ORIGINS": {
-        "description": "Allowed frontend origin(s). Use exact HTTP/HTTPS origins separated by commas; wildcard `*` is not accepted."
       }
     }
   }
