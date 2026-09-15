@@ -3,6 +3,7 @@
   "name": "solution",
   "main": "src/index.ts",
   "compatibility_date": "2024-03-20",
+  "keep_vars": true,
   "observability": {
     "enabled": true,
     "redact_query_string": true,

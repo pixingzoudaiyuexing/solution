@@ -1,5 +1,6 @@
 export interface Env {
   FRONTEND_ORIGINS?: string;
+  FRONTEND_ORIGINS_EXTRA?: string;
   V2BOARD_BASE_URL?: string;
   V2BOARD_SUBSCRIBE_PATH?: string;
   V2BOARD_ACCESS_CLIENT_ID?: string;

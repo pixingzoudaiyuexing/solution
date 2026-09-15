@@ -163,7 +163,8 @@ ordersRouter.post('/:id/checkout', requireAuthorization, async (c) => {
   const requestOrigin = c.req.header('Origin');
   const trustedOrigin = isAllowedFrontendOrigin(
     requestOrigin,
-    c.env.FRONTEND_ORIGINS
+    c.env.FRONTEND_ORIGINS,
+    c.env.FRONTEND_ORIGINS_EXTRA
   ) && requestOrigin.startsWith('https://')
     ? requestOrigin
     : undefined;

@@ -33,6 +33,7 @@ Telegram、Knowledge / 知识库和 multi-level commission distribution 是明�
 
 ## 运行时配置
 - `FRONTEND_ORIGINS`: 允许访问 Gateway 的前端 Origin，多个值使用英文逗号分隔，例如 `https://app.example,https://admin.example`。不允许使用 `*`；未配置或包含无效值时对应 Origin 默认拒绝。
+- `FRONTEND_ORIGINS_EXTRA`: optional non-secret additive allowlist。它与既有 opaque secret `FRONTEND_ORIGINS` 使用同一个严格 parser，最终按 exact-origin Set union 生效；不支持 wildcard、substring、suffix 或域名模式。当前 patch 不读取、替换或迁移旧 secret；长期 Runtime Config Hygiene 可另行将旧配置迁移为可审计的 non-secret configuration。
 - `V2BOARD_BASE_URL`: V2Board API v1 基础地址，必须使用 HTTPS，例如 `https://backend.example/api/v1/`；末尾缺少 `/` 时客户端会自动补齐。
 - `V2BOARD_SUBSCRIBE_PATH`: V2Board 上固定的 subscription route，例如 `/client/subscribe`。必须是根相对路径；不能包含 origin、query、fragment、反斜线、percent encoding 或 traversal。
 

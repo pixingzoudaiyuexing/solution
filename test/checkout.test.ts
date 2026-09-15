@@ -28,6 +28,7 @@ async function checkout(
     userAgent?: string;
     headers?: HeadersInit;
     requestBody?: unknown;
+    frontendOriginsExtra?: string;
   } = {}
 ): Promise<{ response: Response; upstreamFetch: ReturnType<typeof vi.fn<typeof fetch>> }> {
   const upstreamFetch = vi
@@ -53,7 +54,12 @@ async function checkout(
         options.requestBody ?? { paymentMethodId: '3' }
       ),
     },
-    env
+    {
+      ...env,
+      ...(options.frontendOriginsExtra === undefined
+        ? {}
+        : { FRONTEND_ORIGINS_EXTRA: options.frontendOriginsExtra }),
+    }
   );
 
   return { response, upstreamFetch };
@@ -157,6 +163,20 @@ describe('POST /api/v1/orders/:id/checkout', () => {
     );
     const headers = new Headers(upstreamFetch.mock.calls[0][1]?.headers);
     expect(headers.get('origin')).toBe('https://client.example');
+  });
+
+  it('forwards an exact additive frontend Origin for checkout', async () => {
+    const { upstreamFetch } = await checkout(
+      { type: 0, data: 'https://pay.example/qr/123' },
+      {
+        origin: 'https://aureole.example',
+        frontendOriginsExtra: 'https://aureole.example',
+      }
+    );
+
+    expect(
+      new Headers(upstreamFetch.mock.calls[0][1]?.headers).get('origin')
+    ).toBe('https://aureole.example');
   });
 
   it.each([

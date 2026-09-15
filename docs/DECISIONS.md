@@ -14,6 +14,7 @@
 | D-010 | APPROVED | Payment v1 由 V2Board 持有支付和订单状态；Gateway 只做 Contract 转换、安全过滤和 DTO 映射。 |
 | D-011 | APPROVED | Account Lifecycle 使用 provider-neutral `challengeToken`；Google reCAPTCHA 仅为当前 V2Board implementation detail，Adapter 映射到 `recaptcha_data`，Gateway 不持有 anti-bot state。 |
 | D-012 | APPROVED | 针对 pinned Official V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`，anti-bot acquisition 明确分类为 Google reCAPTCHA v2 visible checkbox / explicit render；`GET /api/v1/config/onboarding` 在 `provider="recaptcha"` 时公开 `mode="v2-checkbox"`。Auth mutation 仍使用 provider-neutral `challengeToken` 并由 Adapter 映射到 `recaptcha_data`；V2Board 继续权威验证，solution 不持有 anti-bot state。 |
+| D-013 | APPROVED | 既有 `FRONTEND_ORIGINS` 保持 opaque secret，不读取、不替换、不迁移；新增 optional non-secret `FRONTEND_ORIGINS_EXTRA`。Effective frontend allowlist 是两者经同一严格 HTTP/HTTPS exact-origin parser 后的 Set union；wildcard、malformed、substring 与 suffix matching 均禁止。Wrangler 使用 `keep_vars` 保留远端 non-secret vars。将旧 secret 迁移为可审计 runtime config 属于后续 Runtime Config Hygiene，不在本任务执行。 |
 
 ## D-005 Subscription access 实施约束
 

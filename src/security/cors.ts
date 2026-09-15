@@ -26,10 +26,10 @@ function isValidOrigin(value: string): boolean {
   }
 }
 
-function allowedOrigins(value: string | undefined): Set<string> {
+function allowedOrigins(...values: Array<string | undefined>): Set<string> {
   return new Set(
-    (value ?? '')
-      .split(',')
+    values
+      .flatMap((value) => (value ?? '').split(','))
       .map((origin) => origin.trim())
       .filter(isValidOrigin)
   );
@@ -37,16 +37,17 @@ function allowedOrigins(value: string | undefined): Set<string> {
 
 export function isAllowedFrontendOrigin(
   origin: string | undefined,
-  configuredOrigins: string | undefined
+  ...configuredOrigins: Array<string | undefined>
 ): origin is string {
-  return Boolean(origin && allowedOrigins(configuredOrigins).has(origin));
+  return Boolean(origin && allowedOrigins(...configuredOrigins).has(origin));
 }
 
 export const strictCors: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
   const requestOrigin = c.req.header('Origin');
   const originIsAllowed = isAllowedFrontendOrigin(
     requestOrigin,
-    c.env.FRONTEND_ORIGINS
+    c.env.FRONTEND_ORIGINS,
+    c.env.FRONTEND_ORIGINS_EXTRA
   );
 
   if (c.req.method === 'OPTIONS') {
