@@ -89,15 +89,12 @@ export type InternalSubscriptionAccess =
   | { eligible: true; token: string };
 
 export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
-  private readonly subscribePath: string;
-
   constructor(
     client: V2BoardClient,
     private readonly originClient: V2BoardClient,
-    subscribePath: string | undefined
+    private readonly subscribePath: string | undefined
   ) {
     super(client);
-    this.subscribePath = normalizeV2BoardSubscribePath(subscribePath);
   }
 
   async subscriptionAccess(authToken: string): Promise<InternalSubscriptionAccess> {
@@ -240,11 +237,12 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
     token: string,
     trustedUserAgent?: string
   ): Promise<Response> {
+    const subscribePath = normalizeV2BoardSubscribePath(this.subscribePath);
     const query = new URLSearchParams({
       token: validateSubscriptionToken(token),
     });
     const response = await this.request(
-      `${this.subscribePath}?${query.toString()}`,
+      `${subscribePath}?${query.toString()}`,
       {
         method: 'GET',
         headers: { Accept: '*/*' },

@@ -497,14 +497,19 @@ describe('GET /api/v1/access/subscription', () => {
     expect(logged).not.toContain('private upstream failure');
   });
 
-  it('rejects unsafe deployment subscription paths', async () => {
+  it.each([
+    ['missing', undefined],
+    ['query-only', '?bad'],
+    ['network-path', '//bad'],
+    ['absolute URL', 'https://attacker.example/sub'],
+  ])('rejects %s deployment subscription path', async (_case, subscribePath) => {
     const upstreamFetch = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.request(
       'https://gateway.example/api/v1/access/subscription?token=opaque_token-123',
       undefined,
-      { ...env, V2BOARD_SUBSCRIBE_PATH: 'https://attacker.example/sub' }
+      { ...env, V2BOARD_SUBSCRIBE_PATH: subscribePath }
     );
 
     expect(response.status).toBe(502);

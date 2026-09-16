@@ -109,6 +109,38 @@ describe('GET /api/v1/subscription/entries', () => {
     });
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
+
+  it.each([
+    ['missing', undefined],
+    ['invalid', '?bad'],
+  ])(
+    'does not depend on a %s legacy subscription path',
+    async (_case, legacyPath) => {
+      const upstreamFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: { entries: [{ base_url: 'https://a.example.com' }] },
+          })
+        );
+      vi.stubGlobal('fetch', upstreamFetch);
+
+      const response = await app.fetch(
+        request('/api/v1/subscription/entries'),
+        { ...env, V2BOARD_SUBSCRIBE_PATH: legacyPath }
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        data: { entries: [{ baseUrl: 'https://a.example.com' }] },
+      });
+      expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
+        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/getSubscribeEntries',
+      ]);
+    }
+  );
 });
 
 describe('POST /api/v1/subscription/entry-access', () => {
@@ -235,6 +267,40 @@ describe('POST /api/v1/subscription/entry-access', () => {
       JSON.stringify({ base_url: baseUrl })
     );
   });
+
+  it.each([
+    ['missing', undefined],
+    ['invalid', '//bad'],
+  ])(
+    'does not depend on a %s legacy subscription path',
+    async (_case, legacyPath) => {
+      const baseUrl = 'https://a.example.com';
+      const accessUrl = `${baseUrl}/api/v1/client/subscribe?token=opaque`;
+      const upstreamFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(
+          jsonResponse({ data: { subscribe_url: accessUrl } })
+        );
+      vi.stubGlobal('fetch', upstreamFetch);
+
+      const response = await app.fetch(
+        request('/api/v1/subscription/entry-access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ baseUrl }),
+        }),
+        { ...env, V2BOARD_SUBSCRIBE_PATH: legacyPath }
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ data: { accessUrl } });
+      expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
+        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/getSubscribeForEntry',
+      ]);
+    }
+  );
 
   it.each([401, 403])('maps upstream auth status %s to AUTH_FAILED', async (status) => {
     const upstreamFetch = vi
