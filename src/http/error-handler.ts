@@ -30,6 +30,7 @@ import {
   V2BoardReferralCodeLimitError,
   V2BoardRegistrationUnavailableError,
   V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionEntryUnavailableError,
   V2BoardSubscriptionPeriodAdvanceDisabledError,
   V2BoardSubscriptionPeriodAdvanceError,
   V2BoardSubscriptionPeriodAdvanceUnavailableError,
@@ -188,6 +189,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
         id
       ),
       409
+    );
+  }
+
+  if (err instanceof V2BoardSubscriptionEntryUnavailableError) {
+    return c.json(
+      publicErrorResponse(
+        'SUBSCRIPTION_ENTRY_UNAVAILABLE',
+        'Selected subscription entry is unavailable',
+        id
+      ),
+      422
     );
   }
 

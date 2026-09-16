@@ -9,6 +9,7 @@ import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
   V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionEntryUnavailableError,
   V2BoardSubscriptionRotationError,
   V2BoardSubscriptionUnavailableError,
   V2BoardUpstreamError,
@@ -42,6 +43,33 @@ const subscriptionResponseSchema = z
   .strip();
 const rotationResponseSchema = z
   .object({ data: z.string().min(1).max(8192) })
+  .strip();
+const subscriptionEntriesResponseSchema = z
+  .object({
+    data: z
+      .object({
+        entries: z
+          .array(
+            z
+              .object({ base_url: z.string().min(1).max(2048) })
+              .strip()
+          )
+          .max(100),
+      })
+      .strip(),
+  })
+  .strip();
+const subscriptionEntryAccessResponseSchema = z
+  .object({
+    data: z
+      .object({ subscribe_url: z.string().min(1).max(8192) })
+      .strip(),
+  })
+  .strip();
+const subscriptionEntryUnavailableResponseSchema = z
+  .object({
+    message: z.literal('Selected subscription entry is invalid'),
+  })
   .strip();
 const errorResponseSchema = z
   .object({ message: z.string().optional(), error: z.string().optional() })
@@ -130,6 +158,65 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
     } catch {
       throw new V2BoardUpstreamError();
     }
+  }
+
+  async subscriptionEntries(
+    authToken: string
+  ): Promise<Array<{ baseUrl: string }>> {
+    if (!(await this.accessEligible(authToken))) {
+      throw new V2BoardSubscriptionAccessUnavailableError();
+    }
+
+    const { response, payload } = await this.requestJson(
+      'user/getSubscribeEntries',
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: authToken },
+      }
+    );
+    this.assertAuthorizedResponse(response);
+
+    const parsed = subscriptionEntriesResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardUpstreamError();
+    return parsed.data.data.entries.map((entry) => ({
+      baseUrl: entry.base_url,
+    }));
+  }
+
+  async subscriptionEntryAccess(
+    authToken: string,
+    baseUrl: string
+  ): Promise<string> {
+    if (!(await this.accessEligible(authToken))) {
+      throw new V2BoardSubscriptionAccessUnavailableError();
+    }
+
+    const { response, payload } = await this.requestJson(
+      'user/getSubscribeForEntry',
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: authToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ base_url: baseUrl }),
+      }
+    );
+    this.assertAuthenticatedResponse(response);
+    if (!response.ok) {
+      if (
+        response.status === 422 &&
+        subscriptionEntryUnavailableResponseSchema.safeParse(payload).success
+      ) {
+        throw new V2BoardSubscriptionEntryUnavailableError();
+      }
+      throw new V2BoardUpstreamError();
+    }
+
+    const parsed = subscriptionEntryAccessResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardUpstreamError();
+    return parsed.data.data.subscribe_url;
   }
 
   private async accessEligible(authToken: string): Promise<boolean> {

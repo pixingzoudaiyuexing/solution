@@ -9,6 +9,34 @@ export interface SubscriptionAccessSuccessResponse {
   requestId: string;
 }
 
+export interface SubscriptionEntry {
+  baseUrl: string;
+}
+
+export interface SubscriptionEntries {
+  entries: SubscriptionEntry[];
+}
+
+export interface SubscriptionEntriesSuccessResponse {
+  ok: true;
+  data: SubscriptionEntries;
+  requestId: string;
+}
+
+export interface SubscriptionEntryAccessRequest {
+  baseUrl: string;
+}
+
+export interface SubscriptionEntryAccess {
+  accessUrl: string;
+}
+
+export interface SubscriptionEntryAccessSuccessResponse {
+  ok: true;
+  data: SubscriptionEntryAccess;
+  requestId: string;
+}
+
 export interface SubscriptionAccessRotated {
   rotated: true;
   accessUrl: string;

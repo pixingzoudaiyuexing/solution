@@ -31,6 +31,8 @@
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
 | `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
+| `GET /api/v1/subscription/entries`     | Yes            | `user/order/fetch` + `user/getSubscribeEntries` |
+| `POST /api/v1/subscription/entry-access` | Yes          | `user/order/fetch` + `user/getSubscribeForEntry` |
 | `POST /api/v1/subscription/rotate-access` | Yes         | `user/order/fetch` + `GET user/resetSecurity` |
 | `POST /api/v1/subscription/advance-period` | Yes        | `POST user/newPeriod`            |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
@@ -574,6 +576,77 @@ V2Board 订单历史中存在 `plan_id>0` 且状态为 paid/processing、complet
 ```
 
 `accessUrl` 使用经过校验的当前 solution Gateway HTTPS origin 构建，不使用 upstream origin、`Host` 或 `X-Forwarded-*`。Gateway 从 V2Board `subscribe_url` 中严格提取 V2Board 生成的 token，但不返回 raw upstream URL、raw user token、UUID 或订单内部字段。previous purchaser 即使当前订阅已过期仍可得到 access URL；实际 subscription 是否可用继续由 V2Board 决定。
+
+### CF-02 Multiple Subscription Entries
+
+CF-02 依赖只读冻结版本 `pixingzoudaiyuexing/v2board@45e03f8683b549ae5f1e10b15b634ed624787d72` 提供的两个 authenticated capability：
+
+```text
+VB-CF02-001: GET user/getSubscribeEntries
+VB-CF02-002: POST user/getSubscribeForEntry
+```
+
+两个 Public API 都复用 CF-01 previous-purchaser eligibility：V2Board 订单历史必须至少存在一笔 `plan_id>0` 且 status 为 `1`、`3` 或 `4` 的订单。无订单、pending-only、cancelled-only 或 deposit-only 用户返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，并且只调用 `user/order/fetch`，不读取 entry，也不生成 credential。
+
+#### Entry Discovery
+
+```http
+GET /api/v1/subscription/entries
+Authorization: Bearer <opaque-token>
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "entries": [
+      { "baseUrl": "https://a.example.com" },
+      { "baseUrl": "https://b.example.com/p" }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`entries` 支持空、单个或多个元素，并严格保留 V2Board 的顺序、path、port 与 trailing slash；不排序、不生成 ID、不添加 fallback。`baseUrl` 是当前配置的 entry identity，不是永久不可变 ID。V2Board `config('v2board.subscribe_url')` 是唯一 entry SSOT；Solution 不增加 ENV list、数据库、KV、cache allowlist 或 Admin API。
+
+#### Selected Entry Access
+
+```http
+POST /api/v1/subscription/entry-access
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+```
+
+```json
+{ "baseUrl": "https://b.example.com/p" }
+```
+
+Request 使用 strict object；`baseUrl` 必须是非空字符串且不超过 2048 字符，额外字段或无效 JSON 返回 `400 VALIDATION_ERROR`。该校验只限制 shape/type/size，不实现 entry canonicalization 或 membership allowlist。Solution 将原字符串仅作为固定可信 V2Board 请求的 JSON 字段转发：
+
+```json
+{ "base_url": "https://b.example.com/p" }
+```
+
+成功响应：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "accessUrl": "https://b.example.com/p/api/v1/client/subscribe?token=opaque-credential"
+  },
+  "requestId": "request-id"
+}
+```
+
+`accessUrl` 是 V2Board `getSubscribeForEntry` 生成的完整 opaque credential-bearing URL。Solution 不解析或提取 token，不替换 base，不拼接 `subscribe_path`，不重建 query，不实现 normal/OTP/time-based credential，也不做 prefix、`startsWith`、longest-prefix 或 suffix inference。Browser 提交的 `baseUrl` 绝不成为 fetch target、hostname、origin client target、dynamic path 或 redirect destination；所有 outbound request 仍只经过固定配置的 `V2BoardClient`。
+
+V2Board 对 stale/unknown selection 返回官方 exact `422 Selected subscription entry is invalid` 时，Public response 为 `422 SUBSCRIPTION_ENTRY_UNAVAILABLE`（`Selected subscription entry is unavailable`），不回显提交值且不 fallback。V2Board entry configuration invalid、未知 422、500、malformed JSON/envelope 或 network failure 均 fail closed 为 `502 UPSTREAM_ERROR`；401/403 为 `401 AUTH_FAILED`；timeout 为 `504 UPSTREAM_TIMEOUT`。所有响应使用 `Cache-Control: no-store`，完整 `accessUrl`、token 与提交值不进入 application log、cache 或 durable storage。
+
+现有 `GET /api/v1/subscription` 和 `GET /api/v1/access/subscription?token=...` 保持向后兼容：前者仍生成 solution-owned legacy access URL，后者仍 verbatim stream subscription body。CF-02 selected-entry flow 不使用、也不经过 legacy access proxy。
+
+未来 V2Board upgrade 在被认定为 CF-02 compatible 前，必须继续提供或以等价能力替代 `GET user/getSubscribeEntries` 与 `POST user/getSubscribeForEntry`，并继续由 V2Board 权威持有 entry canonicalization、exact membership validation、subscribe path 与 credential generation。
 
 ### Subscription Access
 
@@ -1402,7 +1475,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。Phase 2W 增加最小 Account / Onboarding Config 后，本文件顶部矩阵包含 44 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 是 `GET /api/v1/access/subscription?token=...`。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-02 Multiple Subscription Entries 增加两个 authenticated API 后，本文件顶部矩阵包含 46 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
 
 v1 已实现范围包括 Authentication、Onboarding/Config、Account、Catalog、Orders、Billing/Checkout、Promotions、Wallet、Subscription、Tickets、Notices、Traffic、Referrals/Commission/Withdrawal 和 Gift Card Redemption。V2Board 继续拥有用户、订单、支付、wallet、subscription、ticket、notice、traffic、invite、commission、withdrawal 与 Gift Card 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 

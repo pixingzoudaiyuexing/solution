@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import {
   createV2BoardClient,
   createV2BoardOriginClient,
@@ -14,9 +15,12 @@ import type { Env } from '../../config/env';
 import type {
   SubscriptionAccessSuccessResponse,
   SubscriptionAccessRotationSuccessResponse,
+  SubscriptionEntriesSuccessResponse,
+  SubscriptionEntryAccessSuccessResponse,
   SubscriptionOverviewSuccessResponse,
   SubscriptionPeriodAdvanceSuccessResponse,
 } from '../../contract/v1/subscription';
+import { GatewayError } from '../../contract/error';
 import { requestId } from '../../http/request-id';
 import {
   requireAuthorization,
@@ -30,6 +34,15 @@ import { validateTrustedUserAgent } from '../../security/user-agent';
 
 const subscriptionRouter = new Hono<GatewayContext>();
 const subscriptionAccessRouter = new Hono<GatewayContext>();
+const subscriptionEntryAccessRequestSchema = z
+  .object({
+    baseUrl: z
+      .string()
+      .min(1)
+      .max(2048)
+      .refine((value) => value.trim().length > 0),
+  })
+  .strict();
 
 function adapter(env: Env): V2BoardSubscriptionAdapter {
   return new V2BoardSubscriptionAdapter(
@@ -88,6 +101,42 @@ subscriptionRouter.get('/overview', requireAuthorization, async (c) => {
   const response: SubscriptionOverviewSuccessResponse = {
     ok: true,
     data,
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.get('/entries', requireAuthorization, async (c) => {
+  const entries = await adapter(c.env).subscriptionEntries(c.get('authToken'));
+  const response: SubscriptionEntriesSuccessResponse = {
+    ok: true,
+    data: { entries },
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.post('/entry-access', requireAuthorization, async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+  const parsed = subscriptionEntryAccessRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  }
+
+  const accessUrl = await adapter(c.env).subscriptionEntryAccess(
+    c.get('authToken'),
+    parsed.data.baseUrl
+  );
+  const response: SubscriptionEntryAccessSuccessResponse = {
+    ok: true,
+    data: { accessUrl },
     requestId: requestId(c),
   };
   c.header('Cache-Control', 'no-store');

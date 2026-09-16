@@ -19,11 +19,14 @@
 
 ## D-005 Subscription access 实施约束
 
-- Public metadata 仅向 V2Board 订单历史中存在成功订阅生命周期的 previous purchaser 提供 solution-owned access URL；pending、cancelled 和 deposit-only 用户不获得 URL。
+- Legacy `GET /api/v1/subscription` metadata 仅向 V2Board 订单历史中存在成功订阅生命周期的 previous purchaser 提供 solution-owned access URL；pending、cancelled 和 deposit-only 用户不获得 URL。CF-02 entry discovery 与 selected-entry access 复用完全相同的 eligibility boundary。
 - V2Board 继续生成和验证 normal、OTP、time-based subscription token；Gateway 不建立 token 数据库或第二套 token 算法。
 - V2Board subscription route 来自固定部署配置，public request 不能选择 upstream path、origin 或额外 query。
 - 成功 subscription body 使用 `Response.body` verbatim stream，不读取、不缓存、不转换协议；只转发经批准的 subscription response headers。
 - subscription client `User-Agent` 仅通过显式受控通道转发，不放宽全局 header allowlist。
+- CF-02 以 `pixingzoudaiyuexing/v2board@45e03f8683b549ae5f1e10b15b634ed624787d72` 的 VB-CF02-001 `GET user/getSubscribeEntries` 与 VB-CF02-002 `POST user/getSubscribeForEntry` 为冻结依赖。V2Board `config('v2board.subscribe_url')` 是唯一 entry SSOT；未来升级必须保留或提供等价 capability。
+- CF-02 selected-entry access 将 Browser 的 literal `baseUrl` 仅作为 JSON `base_url` 发送到固定配置的 V2Board client，由 V2Board 完成 canonicalization、exact membership、subscribe path 和 credential generation。Solution 不把该值用作 fetch target、origin、hostname、dynamic path 或 redirect，不做 prefix/base/suffix inference。
+- CF-02 成功时直接返回 V2Board 生成的完整 opaque credential URL 为 `accessUrl`，不解析 token、不重建 URL，也不经过 legacy `/api/v1/access/subscription` proxy；legacy solution-owned URL 与 verbatim streaming 行为保持不变。
 
 ## D-010 Payment v1 实施约束
 

@@ -17,7 +17,7 @@
 V1 CONTRACT BASELINE FROZEN
 ```
 
-Phase 2W 以向后兼容的 additive extension 新增 Minimal Account / Onboarding Config；真实 source route tree 包含 44 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
+CF-02 Multiple Subscription Entries 以向后兼容的 additive extension 新增 entry discovery 与 selected-entry access；真实 source route tree 包含 46 个 `/api/v1` Public routes。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 

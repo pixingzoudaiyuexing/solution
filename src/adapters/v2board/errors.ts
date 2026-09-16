@@ -152,6 +152,13 @@ export class V2BoardSubscriptionAccessUnavailableError extends Error {
   }
 }
 
+export class V2BoardSubscriptionEntryUnavailableError extends Error {
+  constructor() {
+    super('V2Board subscription entry is unavailable');
+    this.name = 'V2BoardSubscriptionEntryUnavailableError';
+  }
+}
+
 export class V2BoardSubscriptionRotationError extends Error {
   constructor() {
     super('V2Board subscription credential rotation failed');
