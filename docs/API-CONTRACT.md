@@ -44,6 +44,7 @@
 | `POST /api/v1/tickets/{id}/close`      | Yes            | `user/ticket/close`             |
 | `GET /api/v1/notices`                  | Yes            | `user/notice/fetch`             |
 | `GET /api/v1/notices/{id}`             | Yes            | `user/notice/fetch?id={id}`     |
+| `GET /api/v1/custom-pages`             | Yes            | complete `user/notice/fetch` collection |
 | `GET /api/v1/traffic/logs`             | Yes            | `user/stat/getTrafficLog`       |
 | `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
@@ -1233,10 +1234,14 @@ POST /api/v1/tickets/{id}/close
 GET /api/v1/notices?page=1&pageSize=20
 ```
 
-`page` 默认为 1，必须是最大 `2147483647` 的正整数；`pageSize` 默认为 20，范围为 1 至 100。额外或重复 query 参数会返回 `VALIDATION_ERROR`。Adapter 映射为：
+`page` 默认为 1，必须是最大 `2147483647` 的正整数；`pageSize` 默认为 20，范围为 1 至 100。额外或重复 query 参数会返回 `VALIDATION_ERROR`。
+
+Adapter 在每个请求内以固定 `pageSize=100` 从 `current=1` 开始收集完整 visible Notice 集合，并根据 upstream `total` 请求后续页。所有 page 必须保持同一 `total`，ID 不得重复，collection 必须精确覆盖 total；empty/non-progress、total 漂移或其他不一致均 fail closed 为 `UPSTREAM_ERROR`，不返回截断结果。该 collection 只存在于当前 request，不进入 cache、KV、D1、Durable Objects 或数据库。
+
+Solution 将 tags 中任意 exact lowercase `aureole:` prefix 视为 reserved control record；大小写不同的 `Aureole:` / `AUREOLE:` 仍是 ordinary Notice。所有 reserved record（valid 或 invalid）都会从普通 Notice list 移除，然后按 Public `page/pageSize` 对 ordinary records 重新分页并重新计算 `total`，保持 upstream 相对顺序。示意 upstream 请求：
 
 ```http
-GET user/notice/fetch?current=1&pageSize=20
+GET user/notice/fetch?current=1&pageSize=100
 ```
 
 Success：
@@ -1262,7 +1267,7 @@ Success：
 }
 ```
 
-List 不返回正文。官方 Notice Model 的 `content`、`show`、`img_url` 和其他内部字段不会进入 list DTO。官方 `tags` 是 nullable array；Public Contract 稳定返回 bounded `string[]`，上游 `null` 表示没有标签并规范化为 `[]`。
+List 不返回正文。官方 Notice Model 的 `content`、`show`、`img_url` 和其他内部字段不会进入 list DTO。官方 `tags` 是 nullable array；Public Contract 稳定返回 bounded `string[]`，上游 `null` 表示没有标签并规范化为 `[]`。Out-of-range Public page 是合法请求，返回空 `items` 和过滤后的正确 `total`。
 
 ### Notice Detail
 
@@ -1289,7 +1294,55 @@ Notice ID 是最大 `2147483647` 的十进制正整数字符串。Adapter 调用
 
 官方前端允许 Notice `content` 包含 HTML。Gateway 只把经过 string 类型和长度验证的正文作为 opaque string 返回，不渲染、不执行、不改写、不转换 Markdown；Consumer renderer 负责安全展示。即使正文包含 HTML，也不会透传整个 Notice Model。
 
-Notice detail 的官方 HTTP 404 映射为 `404 NOTICE_NOT_FOUND`，公开 message 与上游原文解耦。malformed item、total、tags、正文或 timestamp 统一 fail closed 为 `UPSTREAM_ERROR`。
+Notice detail 的官方 HTTP 404 映射为 `404 NOTICE_NOT_FOUND`，公开 message 与上游原文解耦。结构验证完成后，只要 tags 中存在 exact lowercase `aureole:*`，普通 detail 同样返回 `404 NOTICE_NOT_FOUND`，无论该 reserved config 是否有效；不会暴露 reserved status、mode 或 config error。大小写变体仍按 ordinary Notice 返回。malformed item、total、tags、正文或 timestamp 统一 fail closed 为 `UPSTREAM_ERROR`。
+
+### CF-03B Dynamic Custom Pages
+
+```http
+GET /api/v1/custom-pages
+Authorization: Bearer <opaque-token>
+```
+
+V2Board Notice 是 Custom Page 管理与数据的唯一 SSOT，V2Board 无需 patch。Solution 使用与 ordinary Notice list 相同的完整 visible collection，识别 reserved namespace 并返回：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "notice-6",
+        "title": "使用教程",
+        "url": "https://docs.example.com/",
+        "mode": "iframe"
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+Public item 严格只包含 `id/title/url/mode`。稳定 ID 为 `notice-` 加 upstream numeric Notice ID；不建立持久映射。返回顺序保持 V2Board 当前 visible Notice 顺序，不增加排序 DSL。所有响应使用 `Cache-Control: no-store`。
+
+Reserved namespace 为 case-sensitive exact lowercase `aureole:`：
+
+```text
+aureole:iframe   -> candidate mode "iframe"
+aureole:external -> candidate mode "external"
+aureole:unknown  -> reserved but invalid
+Aureole:iframe   -> ordinary Notice
+AUREOLE:iframe   -> ordinary Notice
+```
+
+Valid record 必须且只能包含一个 reserved mode tag；ordinary tags 可以同时存在。两个 mode、unknown reserved tag、valid mode 加 unknown reserved tag或 duplicate reserved mode 都是 semantic-invalid reserved record：从 ordinary Notice 与 custom-pages 同时隐藏，但不影响其他 valid item。`tags` 非 array、非法 ID/title/content type 等 structural corruption 仍使整个请求 fail closed，不会被当作 semantic-invalid 跳过。
+
+Title 输出为 `trim(title)`，必须非空并受现有 Notice 255 字符上限约束。URL candidate 是完整 `trim(content)`；不执行 HTML/Markdown parser、regex URL extraction、first-http-string 或 strip HTML。Candidate 必须能被标准 URL parser 解析为 absolute URL，protocol 为 `https:`、hostname 非空且不含 username/password。允许 custom port、path、query、fragment 与 trailing slash；输出保持 trim 后配置字符串，不用 `URL.toString()` 重写。
+
+Blank title、HTTP/relative/malformed URL、`javascript:`、`data:`、`file:`、`blob:`、userinfo 或其他 semantic-invalid reserved record 会被静默省略。Solution 不请求 target：不会执行 fetch/HEAD/DNS/availability probe、redirect follow、iframe proxy、token/Authorization 注入或 cookie bridge。唯一 outbound destination 仍是固定配置的 V2Board origin。
+
+`GET /api/v1/custom-pages` 要求 Bearer，并沿用 `AUTH_REQUIRED`、`AUTH_FAILED`、`UPSTREAM_ERROR` 与 `UPSTREAM_TIMEOUT`。V2Board `user/notice/fetch` 已只返回 `show=1`，因此 Public Contract 不增加 `enabled` 或 hidden-item query。
+
+未来 Aureole migration 将以 `V2Board Notice -> Solution /custom-pages` 作为单一 runtime Custom Page SSOT。Aureole 当前尚未迁移；本阶段不定义 dynamic + static merge，也不定义 dynamic failure 到 static runtime fallback。
 
 ### Traffic History
 
@@ -1333,10 +1386,10 @@ Traffic History 当前只反映官方 V2Board 固定查询的本月 1 日至当�
 | HTTP | Code | 场景 |
 | --- | --- | --- |
 | 400 | `VALIDATION_ERROR` | Notice ID、page、pageSize、重复或额外 query 参数无效 |
-| 401 | `AUTH_REQUIRED` | 缺少或无法识别 Bearer credential |
-| 401 | `AUTH_FAILED` | V2Board 拒绝 credential |
+| 401 | `AUTH_REQUIRED` | Notices / Custom Pages 缺少或无法识别 Bearer credential |
+| 401 | `AUTH_FAILED` | V2Board 拒绝 Notices / Custom Pages credential |
 | 404 | `NOTICE_NOT_FOUND` | V2Board 返回官方 Notice detail 404 |
-| 502 | `UPSTREAM_ERROR` | malformed、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
+| 502 | `UPSTREAM_ERROR` | malformed、pagination inconsistency、HTML、invalid JSON、未知或无法可靠分类的 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
 
 Public Notice DTO 不包含 raw Model、`show` 或内部 flags；Public Traffic DTO 不包含 `user_id` 或内部数据库对象。Gateway 不增加 Notice cache、Traffic aggregation state、KV、D1、Durable Objects 或 Redis。
@@ -1475,7 +1528,7 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-02 Multiple Subscription Entries 增加两个 authenticated API 后，本文件顶部矩阵包含 46 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-03B Dynamic Custom Pages 增加一个 authenticated API 后，本文件顶部矩阵包含 47 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
 
 v1 已实现范围包括 Authentication、Onboarding/Config、Account、Catalog、Orders、Billing/Checkout、Promotions、Wallet、Subscription、Tickets、Notices、Traffic、Referrals/Commission/Withdrawal 和 Gift Card Redemption。V2Board 继续拥有用户、订单、支付、wallet、subscription、ticket、notice、traffic、invite、commission、withdrawal 与 Gift Card 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 

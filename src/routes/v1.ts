@@ -31,7 +31,7 @@ import {
   subscriptionRouter,
 } from './v1/subscription';
 import { ticketsRouter } from './v1/tickets';
-import { noticesRouter } from './v1/notices';
+import { customPagesRouter, noticesRouter } from './v1/notices';
 import { trafficRouter } from './v1/traffic';
 import { referralsRouter } from './v1/referrals';
 import { giftCardsRouter } from './v1/gift-cards';
@@ -212,6 +212,7 @@ v1Router.route('/subscription', subscriptionRouter);
 v1Router.route('/access', subscriptionAccessRouter);
 v1Router.route('/tickets', ticketsRouter);
 v1Router.route('/notices', noticesRouter);
+v1Router.route('/custom-pages', customPagesRouter);
 v1Router.route('/traffic', trafficRouter);
 v1Router.route('/referrals', referralsRouter);
 v1Router.route('/gift-cards', giftCardsRouter);

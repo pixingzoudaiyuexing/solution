@@ -31,3 +31,22 @@ export interface NoticeDetailSuccessResponse {
   data: NoticeDetail;
   requestId: string;
 }
+
+export type CustomPageMode = 'external' | 'iframe';
+
+export interface CustomPage {
+  id: string;
+  title: string;
+  url: string;
+  mode: CustomPageMode;
+}
+
+export interface CustomPages {
+  items: CustomPage[];
+}
+
+export interface CustomPagesSuccessResponse {
+  ok: true;
+  data: CustomPages;
+  requestId: string;
+}

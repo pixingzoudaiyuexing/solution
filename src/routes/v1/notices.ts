@@ -5,6 +5,7 @@ import { V2BoardNoticesAdapter } from '../../adapters/v2board/notices';
 import type { Env } from '../../config/env';
 import { GatewayError } from '../../contract/error';
 import type {
+  CustomPagesSuccessResponse,
   NoticeDetailSuccessResponse,
   NoticePageRequest,
   NoticesSuccessResponse,
@@ -16,6 +17,7 @@ import {
 } from '../../security/authorization';
 
 const noticesRouter = new Hono<GatewayContext>();
+const customPagesRouter = new Hono<GatewayContext>();
 const positiveIntegerString = z.string().regex(/^[1-9]\d*$/);
 const paginationSchema = z
   .object({
@@ -88,4 +90,15 @@ noticesRouter.get('/:id', requireAuthorization, async (c) => {
   return c.json(response);
 });
 
-export { noticesRouter };
+customPagesRouter.get('/', requireAuthorization, async (c) => {
+  const items = await adapter(c.env).customPages(c.get('authToken'));
+  const response: CustomPagesSuccessResponse = {
+    ok: true,
+    data: { items },
+    requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+export { customPagesRouter, noticesRouter };

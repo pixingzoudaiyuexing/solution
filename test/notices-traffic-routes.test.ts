@@ -69,14 +69,14 @@ describe('GET /api/v1/notices', () => {
     expect(serialized).not.toContain('show');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(fetcher.mock.calls[0][0]).toBe(
-      'https://backend.example/api/v1/user/notice/fetch?current=1&pageSize=20'
+      'https://backend.example/api/v1/user/notice/fetch?current=1&pageSize=100'
     );
   });
 
   it.each([
-    ['custom page', '?page=2&pageSize=25', 'current=2&pageSize=25'],
-    ['max page size', '?page=1&pageSize=100', 'current=1&pageSize=100'],
-  ])('maps %s', async (_case, query, expectedQuery) => {
+    ['custom public page', '?page=2&pageSize=25'],
+    ['max public page size', '?page=1&pageSize=100'],
+  ])('collects upstream before applying %s', async (_case, query) => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ data: [], total: 0 }));
@@ -87,7 +87,45 @@ describe('GET /api/v1/notices', () => {
       env
     );
     expect(response.status).toBe(200);
-    expect(String(fetcher.mock.calls[0][0])).toContain(expectedQuery);
+    expect(String(fetcher.mock.calls[0][0])).toContain(
+      'current=1&pageSize=100'
+    );
+  });
+
+  it('filters every lowercase reserved record and recomputes ordinary total', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        data: [
+          upstreamNotice({ id: 5, title: 'Normal 5', tags: ['news'] }),
+          upstreamNotice({ id: 4, tags: ['aureole:unknown'] }),
+          upstreamNotice({ id: 3, title: 'Normal 3', tags: null }),
+          upstreamNotice({
+            id: 2,
+            content: 'https://custom.example',
+            tags: ['aureole:iframe'],
+          }),
+          upstreamNotice({ id: 1, title: 'Normal 1', tags: [] }),
+        ],
+        total: 5,
+      })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await app.request(
+      '/api/v1/notices?page=2&pageSize=2',
+      { headers: { Authorization: 'Bearer opaque-token', 'cf-ray': 'request-id' } },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: {
+        items: [{ id: '1', title: 'Normal 1' }],
+        page: 2,
+        pageSize: 2,
+        total: 3,
+      },
+    });
   });
 
   it.each([
@@ -170,6 +208,54 @@ describe('GET /api/v1/notices/:id', () => {
       expect(fetcher).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    ['valid custom page', ['aureole:iframe']],
+    ['invalid reserved config', ['aureole:unknown']],
+  ])('hides %s detail as NOTICE_NOT_FOUND', async (_case, tags) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: upstreamNotice({
+            content: 'https://custom.example',
+            tags,
+          }),
+        })
+      )
+    );
+
+    const response = await app.request(
+      '/api/v1/notices/7',
+      { headers: { Authorization: 'Bearer opaque-token' } },
+      env
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'NOTICE_NOT_FOUND' },
+    });
+  });
+
+  it('keeps a case-variant namespace tag ordinary', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: upstreamNotice({ tags: ['Aureole:iframe'] }) })
+      )
+    );
+
+    const response = await app.request(
+      '/api/v1/notices/7',
+      { headers: { Authorization: 'Bearer opaque-token' } },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: { id: '7', tags: ['Aureole:iframe'] },
+    });
+  });
 
   it('normalizes not found, malformed detail, auth failure, and timeout', async () => {
     const cases = [

@@ -16,6 +16,7 @@
 | D-012 | APPROVED | 针对 pinned Official V2Board `99f8526eddb72a4e8f6cbccd58cc0656bb91fe88`，anti-bot acquisition 明确分类为 Google reCAPTCHA v2 visible checkbox / explicit render；`GET /api/v1/config/onboarding` 在 `provider="recaptcha"` 时公开 `mode="v2-checkbox"`。Auth mutation 仍使用 provider-neutral `challengeToken` 并由 Adapter 映射到 `recaptcha_data`；V2Board 继续权威验证，solution 不持有 anti-bot state。 |
 | D-013 | APPROVED | 既有 `FRONTEND_ORIGINS` 保持 opaque secret，不读取、不替换、不迁移；新增 optional non-secret `FRONTEND_ORIGINS_EXTRA`。Effective frontend allowlist 是两者经同一严格 HTTP/HTTPS exact-origin parser 后的 Set union；wildcard、malformed、substring 与 suffix matching 均禁止。Wrangler 使用 `keep_vars` 保留远端 non-secret vars。将旧 secret 迁移为可审计 runtime config 属于后续 Runtime Config Hygiene，不在本任务执行。 |
 | D-014 | APPROVED | solution 是独立 public API Gateway，Frontend domain 可替换且不构成身份。CORS 只负责 browser interoperability：Public API 固定 `Access-Control-Allow-Origin: *`，不启用 credentialed CORS；认证继续使用显式 Bearer，Origin/Referer 不参与 identity、authorization 或 ownership。`FRONTEND_ORIGINS` / `FRONTEND_ORIGINS_EXTRA` 不再被 application runtime 消费，现有 Cloudflare bindings 可暂时 dormant，安全清理由后续 Runtime Config Hygiene 执行。Checkout 仅把经过严格 exact HTTPS 语法验证的 request Origin 作为 payment return-url protocol metadata 转发；Official V2Board 继续拥有 payment business logic。 |
+| D-015 | APPROVED | CF-03B 使用 V2Board visible Notice 作为 Dynamic Custom Pages 唯一 SSOT；exact lowercase `aureole:` 是 reserved control namespace。Solution request-locally 完整收集、分类和重分页，不 patch V2Board、不建立第二配置源，也绝不 server-side fetch Custom Page target。 |
 
 ## D-005 Subscription access 实施约束
 
@@ -36,3 +37,12 @@
 - Checkout 仅转发经过 exact HTTPS Origin 语法校验的 request Origin，作为 V2Board payment return-url protocol metadata；Origin 不表示身份或授权，且不转发浏览器控制的 Host 和 Forwarded Host/Proto headers。
 - 支付过期遵循 V2Board 订单过期规则，Gateway 不创建独立 timer。官方 `wyx2685/v2board` `99f8526` 不提供权威 `expires_at` 时，Public `expiresAt` 返回 `null`；未来兼容上游提供合法值时仅验证并映射，Gateway 始终不自行计算或执行过期判断。
 - Checkout v1 的 Public response types 仅为 `finished`、`qrcode` 和 `redirect`。
+
+## D-015 Dynamic Custom Pages 实施约束
+
+- Valid mode 仅为 exact `aureole:iframe` 或 `aureole:external`，且不能同时存在其他 `aureole:*` tag；namespace case-sensitive，`Aureole:` / `AUREOLE:` 是 ordinary。
+- 所有 lowercase `aureole:*` records（valid 或 invalid）都从 ordinary Notice list/detail 隐藏；invalid reserved item 不阻断其他 valid item，但 malformed upstream structure 仍整体 fail closed。
+- Solution 以固定 upstream `pageSize=100` 完整收集 visible Notices，验证稳定 total、progress 和 unique ID，再对 ordinary records 重分页；不返回 silent truncation。
+- Custom Page ID 为 request-time `notice-<upstream id>`，title/content 只做 trim 和严格 HTTPS URL validation；不解析 HTML/Markdown、不提取第一条 URL、不持久化映射。
+- Target URL 永不成为 Solution outbound destination，不执行 fetch、HEAD、DNS probe、redirect follow、proxy、Authorization/token injection 或 cookie bridge。
+- Future Aureole consumer 将读取 authenticated `/api/v1/custom-pages`；Aureole migration、static source removal、dynamic/static merge 和 runtime fallback 不属于本 Solution task。

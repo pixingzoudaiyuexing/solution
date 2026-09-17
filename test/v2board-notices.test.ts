@@ -39,7 +39,7 @@ function upstreamNotice(overrides: Record<string, unknown> = {}) {
 }
 
 describe('V2BoardNoticesAdapter list', () => {
-  it('maps pagination and returns an empty page', async () => {
+  it('collects from the first fixed-size upstream page and returns an empty public page', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ data: [], total: 0 }));
@@ -54,7 +54,7 @@ describe('V2BoardNoticesAdapter list', () => {
 
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe(
-      'https://backend.example/api/v1/user/notice/fetch?current=2&pageSize=20'
+      'https://backend.example/api/v1/user/notice/fetch?current=1&pageSize=100'
     );
     expect(init?.method).toBe('GET');
     expect(init?.redirect).toBe('manual');
@@ -189,6 +189,46 @@ describe('V2BoardNoticesAdapter detail', () => {
   });
 
   it.each([
+    ['valid iframe', ['aureole:iframe']],
+    ['valid external', ['aureole:external']],
+    ['unknown reserved', ['aureole:unknown']],
+    ['conflicting reserved', ['aureole:iframe', 'aureole:external']],
+  ])('hides %s reserved detail as NOTICE_NOT_FOUND', async (_case, tags) => {
+    const adapter = createAdapter(
+      vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({
+          data: upstreamNotice({
+            content: 'https://custom.example',
+            tags,
+          }),
+        })
+      )
+    );
+
+    await expect(adapter.notice('opaque-token', '7')).rejects.toBeInstanceOf(
+      V2BoardNoticeNotFoundError
+    );
+  });
+
+  it.each([['Aureole:iframe'], ['AUREOLE:external']])(
+    'keeps case-variant tag %s as an ordinary detail',
+    async (tag) => {
+      const adapter = createAdapter(
+        vi.fn<typeof fetch>().mockResolvedValue(
+          jsonResponse({ data: upstreamNotice({ tags: [tag] }) })
+        )
+      );
+
+      await expect(adapter.notice('opaque-token', '7')).resolves.toMatchObject({
+        id: '7',
+        tags: [tag],
+      });
+    }
+  );
+
+  it.each([
+    ['invalid id', upstreamNotice({ id: '7' })],
+    ['invalid title type', upstreamNotice({ title: 7 })],
     ['non-string content', upstreamNotice({ content: { html: '<p>x</p>' } })],
     ['oversized content', upstreamNotice({ content: 'x'.repeat(65_536) })],
     ['malformed tags', upstreamNotice({ tags: 'maintenance' })],
