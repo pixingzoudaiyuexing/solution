@@ -17,7 +17,7 @@
 V1 CONTRACT BASELINE FROZEN
 ```
 
-CF-03B Dynamic Custom Pages 保持 authenticated `/api/v1/custom-pages` path 与 `{id,title,url,mode}` DTO；SOL-REG-M02-01 implementation candidate 将其 runtime authority 迁移为 Reserved Knowledge Registry `custom-pages` snapshot，并在返回前通过 Official V2Board `user/info` 验证真实 session。Notice 不再作为 Custom Pages runtime fallback或 merge source，target URL 也不会被 fetch；ordinary Notice list/detail 仍保留 existing lowercase `aureole:*` filtering。A3 Runtime Settings read route 与 Custom Pages route共同使真实 source route tree 保持 48 个 `/api/v1` Public routes。legacy Notice rows不在本任务删除，Production cutover未执行。
+CF-03B Dynamic Custom Pages 保持 authenticated `/api/v1/custom-pages` path 与 `{id,title,url,mode}` DTO；SOL-REG-M02-01 已 `PASS / COMPLETE / CLOSED / RE-FROZEN`，其 code-level runtime authority 已迁移为 Reserved Knowledge Registry `custom-pages` snapshot，并在返回前通过 Official V2Board `user/info` 验证真实 session。Notice 不再作为 Custom Pages runtime fallback或 merge source，target URL 也不会被 fetch；ordinary Notice list/detail 仍保留 existing lowercase `aureole:*` filtering。A3 Runtime Settings read route 与 Custom Pages route共同使真实 source route tree 保持 48 个 `/api/v1` Public routes。legacy Notice rows不在本任务删除，Production cutover未执行。
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、knowledge、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 

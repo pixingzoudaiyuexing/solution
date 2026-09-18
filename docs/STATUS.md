@@ -28,7 +28,7 @@ Reviewed/current repository baseline before this reconciliation: `472635dbedb8ef
 
 ## Custom Pages Runtime
 
-- Runtime source candidate: Reserved Knowledge Registry `custom-pages` A2 snapshot; V2Board remains unmodified.
+- Runtime source: Reserved Knowledge Registry `custom-pages` A2 snapshot; V2Board remains unmodified.
 - Route: authenticated `GET /api/v1/custom-pages`, preserving only `id/title/url/mode`.
 - Request sequence: Bearer syntax gate -> Official V2Board `user/info` session validation -> Registry snapshot -> explicit DTO.
 - Registry unavailable after valid session returns empty items; no Notice fallback/merge and no target fetch/probe.
@@ -42,7 +42,7 @@ Reviewed/current repository baseline before this reconciliation: `472635dbedb8ef
 Reserved Knowledge Registry -> Solution /api/v1/custom-pages
 ```
 
-Custom Pages Registry source migration 是 implementation candidate，等待 independent post-code review。legacy Notice rows不在本任务删除，Production cutover未执行。
+Custom Pages Registry source migration 已 `PASS / COMPLETE / CLOSED / RE-FROZEN`，Gemini independent post-code review 为 `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`。legacy Notice rows 未删除，Production cutover 未执行。
 
 ```text
 Reserved Knowledge Registry -> Solution -> Aureole
