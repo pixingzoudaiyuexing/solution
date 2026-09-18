@@ -68,3 +68,4 @@
 - Latest validation state 与 LKG 独立保存。Source failure 或 invalid module 不覆盖既有 valid LKG；unrelated valid module 可更新；disabled/absent module 不保留活动 config。LKG 只有在 code-owned freshness bound 内可用。
 - Freshness class 仅由代码定义为 `STALE_TOLERANT` 或 `FRESH_REQUIRED`，positive max age 同样由代码持有。`age <= maxAge` 可用，`age > maxAge` 不可用；KV TTL 不是 correctness/security authority，也不提供 immediate/linearizable revocation。
 - Worker 可增加 internal scheduled handler 调用 refresh，但不增加 Registry/health/refresh Public route。Production KV namespace/binding 和 Cron cadence 需独立部署授权；A2 不实现 Telegram/webhook delivery、live provider probe 或产品 module。
+- Cloudflare KV eventual consistency 与无 transactional CAS 是明确限制；A2 不提供 global linearizable refresh ordering 或 immediate revocation。Source-level failure不写 snapshot，每个成功持久化 candidate 必须独立通过 strict schema、module snapshot schema 与 safe fingerprint validation。
