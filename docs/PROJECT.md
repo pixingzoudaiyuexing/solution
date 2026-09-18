@@ -23,6 +23,8 @@ Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2B
 
 A1 `SOL-REG-KERNEL-01` 增加 internal-only Control Plane 与 Registry validation primitives，不增加 Public API。Official Admin Knowledge 是 reserved Registry raw source；Solution 只通过 deployment-owned `V2BOARD_CONTROL_AUTH_DATA` 和 `V2BOARD_CONTROL_ADMIN_PREFIX` 执行 code-owned list/detail read。Registry Kernel 严格验证 identity/envelope/module schema、stable IDs/references、exposure、DTO allowlist与provider secrets，并保持 module-level fail closed。A1 不增加 KV/snapshot/scheduler，不让 Browser request触发 Admin fetch，也不修改 V2Board 或 Aureole。
 
+A2 `SOL-REG-KERNEL-02` implementation candidate 的代码锚点为 `363e8b3fe41a700e4f99af6fa8e6f16014d09452`，当前等待 mandatory independent post-code review，尚未 closed/re-frozen。A2 引入唯一 code-level logical binding `REGISTRY_KV`，只保存 derived/rebuildable safe snapshot、bounded freshness、redacted health 与 minimal alert/recovery metadata；不保存业务/用户权威、raw source 或 secret。Worker 增加 internal scheduled boundary，但没有 Public Registry/health/refresh route，Public route count 仍为 47。Production KV namespace/binding、Cron cadence、Control Plane secrets 与 live Admin runtime evidence 均不存在；production operational module definitions 当前为空，A3 未开始。
+
 V2Board-first Business Ownership：官方 V2Board 已支持的业务规则、金额计算、资格、transaction、state mutation 和 callback 继续由 V2Board 持有；solution 只做 Public Contract、验证、安全过滤和 Adapter 映射。Coupon Application 只把 `promotionCode` 映射为 `coupon_code`，不预查、不计算折扣/价格/VIP/余额，也不保存 coupon state。
 
 Phase 2V 的 Product Detail 只将 `GET /api/v1/products/{id}` 映射为一次 `GET user/plan/fetch?id={id}`。hidden/current/renewable Plan 的可见性和最终购买资格仍完全由 V2Board 决定；Gateway 不预读用户或套餐、不计算容量、不比较 current plan，也不复制 `show` / `renew` 逻辑。详情成功不代表 Order Create 成功，`user/order/save` 仍是最终权威。
@@ -42,6 +44,7 @@ CF-02 Multiple Subscription Entries 当前仍依赖既有 CC V2Board compatibili
 - `V2BOARD_SUBSCRIBE_PATH`: V2Board 上固定的 subscription route，例如 `/client/subscribe`。必须是根相对路径；不能包含 origin、query、fragment、反斜线、percent encoding 或 traversal。
 - `V2BOARD_CONTROL_AUTH_DATA`: internal Control Plane bootstrap credential；必须以 Solution deployment secret人工 provision。Solution 不保存 Admin password、不自动登录，也不允许 Registry选择此 credential。
 - `V2BOARD_CONTROL_ADMIN_PREFIX`: internal deployment-owned V2Board Admin secure prefix；必须使用安全 relative prefix，不能包含 origin、leading slash、backslash、query、fragment、percent encoding 或 traversal。Browser/Public input永远不能选择该值。
+- `REGISTRY_KV`: A2 code-level logical Cloudflare KV binding；仅用于可重建的 Registry operational state。当前 `wrangler.jsonc` 没有 Production namespace ID、binding 或 Cron Trigger，实际 provision/activation 需要后续独立部署授权。
 
 当前冻结部署不使用 `V2BOARD_ACCESS_CLIENT_ID`、`V2BOARD_ACCESS_CLIENT_SECRET`、Cloudflare Access 或 Tunnel。Payment Provider 协议必须携带的 `notify_url` / callback hostname 由 V2Board 管理，solution 不代理、重写或持有 callback 和支付状态。
 

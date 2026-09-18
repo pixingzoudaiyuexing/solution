@@ -10,7 +10,10 @@ Public routes: 47
 Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
-A2: NOT STARTED / NOT AUTHORIZED
+A2: IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT REVIEW
+A2 implementation code anchor: 363e8b3fe41a700e4f99af6fa8e6f16014d09452
+A2 Production KV binding / Cron: NOT PROVISIONED / NOT ACTIVATED
+A3: NOT STARTED / NOT AUTHORIZED
 ```
 
 本文件后续的 docs-only reconciliation commit 不改变上述已审阅的 A1 implementation anchor，也不表示 A1 runtime/code 被重新审阅或修改。
@@ -50,3 +53,14 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - No Public Registry route, generic Admin proxy, Admin mutation, data-plane Admin fetch, KV/snapshot/Cron/health scheduler or A2 implementation.
 - A1 已完成并 re-frozen；Gemini final review 为 PASS，BLOCKER 与 HIGH 均为 0。
 - Residual: `REG-KERNEL-003` 为 MEDIUM / NEEDS RUNTIME EVIDENCE；真实目标部署中 Admin Knowledge 的 `id/show` JSON serialization types 尚未 runtime verified。
+
+## A2 Registry Operational Foundation Candidate
+
+- Exactly one logical code binding: `REGISTRY_KV`; no Production namespace ID or remote binding exists.
+- Fixed keys: `registry:snapshot:v1`, `registry:health:v1`, `registry:alert:v1`; snapshot schema version is `1`.
+- Safe per-module projection precedes persistence; Knowledge plaintext, resolved Solution secret, raw Admin response and raw Knowledge body are excluded from KV and fingerprints.
+- Latest validation state is separate from LKG. Invalid/source failure preserves valid LKG; disabled or absent modules do not retain active config.
+- `STALE_TOLERANT` and `FRESH_REQUIRED` are code-owned bounded policies evaluated from `validatedAt`; KV TTL is not a security boundary.
+- Worker default fetch delegates to the existing Hono app. Internal scheduled execution calls Registry refresh without adding a Public route; route count remains `47`.
+- Health/alert state is internal and redacted; no Telegram, webhook, live provider probe or product module is implemented.
+- Current state is pending mandatory Gemini post-code review. It is not COMPLETE, CLOSED or RE-FROZEN.

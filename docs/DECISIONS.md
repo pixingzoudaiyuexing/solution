@@ -18,6 +18,7 @@
 | D-014 | APPROVED | solution 是独立 public API Gateway，Frontend domain 可替换且不构成身份。CORS 只负责 browser interoperability：Public API 固定 `Access-Control-Allow-Origin: *`，不启用 credentialed CORS；认证继续使用显式 Bearer，Origin/Referer 不参与 identity、authorization 或 ownership。`FRONTEND_ORIGINS` / `FRONTEND_ORIGINS_EXTRA` 不再被 application runtime 消费，现有 Cloudflare bindings 可暂时 dormant，安全清理由后续 Runtime Config Hygiene 执行。Checkout 仅把经过严格 exact HTTPS 语法验证的 request Origin 作为 payment return-url protocol metadata 转发；Official V2Board 继续拥有 payment business logic。 |
 | D-015 | APPROVED | CF-03B 使用 V2Board visible Notice 作为 Dynamic Custom Pages 唯一 SSOT；exact lowercase `aureole:` 是 reserved control namespace。Solution request-locally 完整收集、分类和重分页，不 patch V2Board、不建立第二配置源，也绝不 server-side fetch Custom Page target。 |
 | D-016 | APPROVED | A1 Registry Kernel 以 Official V2Board Admin Knowledge 作为 internal raw source；Control Plane 只提供 code-owned Knowledge list/detail read，使用 deployment-owned auth_data 与 validated Admin prefix。Registry strict validation、stable IDs/references、exposure与secret primitives保持无状态，不新增 Public route、KV或 generic Admin proxy。 |
+| D-017 | APPROVED | A2 允许唯一 logical `REGISTRY_KV` 保存 derived/rebuildable Registry operational snapshot、bounded freshness 与 redacted health/alert metadata。KV 不持有业务/用户权威；refresh 仅允许 scheduled/internal 调用且不增加 Public route。 |
 
 ## D-005 Subscription access 实施约束
 
@@ -58,3 +59,12 @@
 - Exposure maximum由代码持有：`public`、`authenticated`、`internal` 只能保持或收紧。DTO 必须从 explicit allowlist新建，禁止 raw serialization 后再 redact。
 - Provider secret source 显式支持 Knowledge plaintext 或 Solution logical allowlist ref；不允许 Registry 任意读取 env key。Knowledge plaintext 是已知 confidentiality risk，但 resolved value仍不得序列化、记录或进入错误。Control Plane bootstrap auth只允许 Solution deployment boundary，不是 Registry secret。
 - A1 是 source acquisition + validation kernel，不注册 Public Registry endpoint，不引入 KV/D1/DO/Cron/snapshot/health/alert，也不表示 A2 或任何 Registry consumer/module 已实现。
+
+## D-017 Registry Operational State 实施约束
+
+- `REGISTRY_KV` 是唯一 logical operational KV；固定 key 为 `registry:snapshot:v1`、`registry:health:v1` 与 `registry:alert:v1`。不允许 Registry、Browser、用户 ID、token 或 credential 选择 key/prefix，也不引入第二持久化技术。
+- Snapshot schema version 为 1。Validated config 只能进入 code-owned per-module safe projector，再经 module-specific snapshot schema 验证后持久化；禁止直接序列化 `RegistryModuleResult.useConfig()`、raw Admin response 或 raw Knowledge body。
+- Knowledge plaintext secret 与 resolved Solution secret 永不持久化。Solution secret source 最多保留 validated logical ref；Knowledge source 最多保留不含 value 的 source classification。Fingerprint 仅来自 canonical safe normalized data。
+- Latest validation state 与 LKG 独立保存。Source failure 或 invalid module 不覆盖既有 valid LKG；unrelated valid module 可更新；disabled/absent module 不保留活动 config。LKG 只有在 code-owned freshness bound 内可用。
+- Freshness class 仅由代码定义为 `STALE_TOLERANT` 或 `FRESH_REQUIRED`，positive max age 同样由代码持有。`age <= maxAge` 可用，`age > maxAge` 不可用；KV TTL 不是 correctness/security authority，也不提供 immediate/linearizable revocation。
+- Worker 可增加 internal scheduled handler 调用 refresh，但不增加 Registry/health/refresh Public route。Production KV namespace/binding 和 Cron cadence 需独立部署授权；A2 不实现 Telegram/webhook delivery、live provider probe 或产品 module。
