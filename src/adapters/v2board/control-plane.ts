@@ -74,8 +74,23 @@ function validateAdminPrefix(value: unknown): string {
     value.includes('?') ||
     value.includes('#') ||
     value.includes('%') ||
-    /^[a-z][a-z\d+.-]*:/i.test(value) ||
-    !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(value)
+    /^[a-z][a-z\d+.-]*:/i.test(value)
+  ) {
+    throw new ControlPlaneError(
+      ControlPlaneErrorCode.CONTROL_PLANE_CONFIG_INVALID
+    );
+  }
+
+  const segments = value.split('/');
+  if (
+    segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment.length > 128 ||
+        segment === '.' ||
+        segment === '..' ||
+        !/^[A-Za-z0-9_.-]+$/.test(segment)
+    )
   ) {
     throw new ControlPlaneError(
       ControlPlaneErrorCode.CONTROL_PLANE_CONFIG_INVALID

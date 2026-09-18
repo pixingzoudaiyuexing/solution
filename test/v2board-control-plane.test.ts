@@ -162,7 +162,15 @@ describe('V2BoardControlPlaneClient surface and source acquisition', () => {
 });
 
 describe('Control Plane Admin prefix validation', () => {
-  it.each(['secure-admin', 'secure_admin-123', 'segment-one/segment-two'])(
+  it.each([
+    'secure-admin',
+    'secure_admin-123',
+    'admin.abc',
+    'secure.admin_123',
+    'admin-v2.example',
+    'segment-one/segment-two',
+    'nested.admin/path.v2',
+  ])(
     'allows safe deployment prefix %s',
     async (prefix) => {
       const fetcher = vi
@@ -180,6 +188,8 @@ describe('Control Plane Admin prefix validation', () => {
 
   it.each([
     'https://attacker.example/admin',
+    'http:evil',
+    'javascript:evil',
     '/absolute',
     '\\absolute',
     'javascript:admin',
@@ -188,9 +198,11 @@ describe('Control Plane Admin prefix validation', () => {
     '.',
     '..',
     'admin/../other',
+    'admin/./child',
     'admin/%2e%2e/other',
     'admin//other',
     'admin%2fother',
+    'a'.repeat(129),
   ])('rejects unsafe prefix %s before fetch', async (prefix) => {
     const fetcher = vi.fn<typeof fetch>();
     expect(() =>

@@ -6,6 +6,7 @@ import {
 import {
   RegistrySecretError,
   resolveProviderSecret,
+  validateProviderSecretSource,
   type RegistrySecretSource,
   type SolutionSecretResolver,
 } from './secrets';
@@ -348,11 +349,16 @@ function parseCandidate(
 
   try {
     const secretSources = definition.getSecretSources?.(parsedConfig.data) ?? [];
-    if (secretSources.length > 0 && !options.solutionSecretResolver) {
-      throw new RegistrySecretError();
-    }
     for (const secretSource of secretSources) {
-      resolveProviderSecret(secretSource, options.solutionSecretResolver!);
+      validateProviderSecretSource(
+        secretSource,
+        options.solutionSecretResolver
+      );
+    }
+    if (envelope.enabled) {
+      for (const secretSource of secretSources) {
+        resolveProviderSecret(secretSource, options.solutionSecretResolver);
+      }
     }
   } catch {
     return {

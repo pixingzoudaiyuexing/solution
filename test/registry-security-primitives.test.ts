@@ -13,6 +13,7 @@ import {
   createSolutionSecretResolver,
   resolveControlPlaneBootstrapSecret,
   resolveProviderSecret,
+  validateProviderSecretSource,
   type RegistrySecretSource,
 } from '../src/registry/secrets';
 import {
@@ -94,6 +95,42 @@ describe('Registry DTO allowlist projection', () => {
 });
 
 describe('Registry secret source model', () => {
+  it('validates an allowlisted solution source without consuming its missing runtime value', () => {
+    const accessor = vi.fn<() => string | undefined>().mockReturnValue(undefined);
+    const resolver = createSolutionSecretResolver({
+      'provider.test.api-key': accessor,
+    });
+
+    expect(
+      validateProviderSecretSource(
+        { source: 'solution', ref: 'provider.test.api-key' },
+        resolver
+      )
+    ).toEqual({ source: 'solution', ref: 'provider.test.api-key' });
+    expect(accessor).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown source', { source: 'other', value: 'x' }],
+    ['knowledge missing value', { source: 'knowledge' }],
+    ['knowledge extra field', { source: 'knowledge', value: 'x', extra: true }],
+    ['solution missing ref', { source: 'solution' }],
+    ['solution empty ref', { source: 'solution', ref: '' }],
+    ['solution uppercase/underscore ref', { source: 'solution', ref: 'BAD_REF' }],
+    ['solution empty segment', { source: 'solution', ref: 'provider..key' }],
+    ['solution unknown logical ref', { source: 'solution', ref: 'provider.unknown.key' }],
+    ['solution extra field', { source: 'solution', ref: 'provider.test.api-key', extra: true }],
+  ])('rejects malformed or unauthorized source structure: %s', (_case, source) => {
+    expect(() =>
+      validateProviderSecretSource(
+        source,
+        createSolutionSecretResolver({
+          'provider.test.api-key': () => undefined,
+        })
+      )
+    ).toThrowError(RegistrySecretError);
+  });
+
   it('supports explicit provider knowledge plaintext without serialization', () => {
     const sentinel = 'PROVIDER_SECRET_SENTINEL';
     const source: RegistrySecretSource = { source: 'knowledge', value: sentinel };
@@ -233,6 +270,98 @@ describe('Registry secret source model', () => {
       ['solution-module', RegistryValidationState.VALID_ENABLED],
       ['missing-module', RegistryValidationState.SECRET_UNRESOLVED],
     ]);
+    expect(JSON.stringify(report)).not.toContain(sentinel);
+  });
+
+  it('skips only runtime availability for structurally valid disabled secrets', () => {
+    const sentinel = 'PROVIDER_SECRET_SENTINEL';
+    const configSchema = z.object({ secret: z.unknown() }).strict();
+    const moduleDefinition = (
+      moduleId: string
+    ): RegistryModuleDefinition<z.infer<typeof configSchema>> => ({
+      moduleId,
+      schemaVersion: 1,
+      configSchema,
+      maximumExposure: 'internal',
+      getSecretSources: (config) => [config.secret as RegistrySecretSource],
+    });
+    const registryRecord = (
+      moduleId: string,
+      enabled: boolean,
+      secret: unknown,
+      sourceId: number
+    ) => ({
+      sourceId,
+      category: '__AUREOLE_REGISTRY__',
+      title: `registry:${moduleId}`,
+      show: 1 as const,
+      updatedAt: 1,
+      body: JSON.stringify({
+        kind: 'aureole.registry',
+        moduleId,
+        schemaVersion: 1,
+        enabled,
+        config: { secret },
+      }),
+    });
+    const missingAccessor = vi
+      .fn<() => string | undefined>()
+      .mockReturnValue(undefined);
+    const report = validateRegistryKnowledge(
+      [
+        registryRecord(
+          'disabled-solution',
+          false,
+          { source: 'solution', ref: 'provider.test.api-key' },
+          1
+        ),
+        registryRecord(
+          'enabled-solution',
+          true,
+          { source: 'solution', ref: 'provider.test.api-key' },
+          2
+        ),
+        registryRecord(
+          'disabled-malformed',
+          false,
+          { source: 'solution', ref: 'BAD_REF' },
+          3
+        ),
+        registryRecord(
+          'disabled-knowledge',
+          false,
+          { source: 'knowledge', value: sentinel },
+          4
+        ),
+        registryRecord(
+          'unrelated-module',
+          true,
+          { source: 'knowledge', value: 'unrelated-secret' },
+          5
+        ),
+      ],
+      [
+        moduleDefinition('disabled-solution'),
+        moduleDefinition('enabled-solution'),
+        moduleDefinition('disabled-malformed'),
+        moduleDefinition('disabled-knowledge'),
+        moduleDefinition('unrelated-module'),
+      ],
+      {
+        solutionSecretResolver: createSolutionSecretResolver({
+          'provider.test.api-key': missingAccessor,
+        }),
+      }
+    );
+
+    expect(report.modules.map(({ moduleId, state }) => [moduleId, state])).toEqual([
+      ['disabled-solution', RegistryValidationState.VALID_DISABLED],
+      ['enabled-solution', RegistryValidationState.SECRET_UNRESOLVED],
+      ['disabled-malformed', RegistryValidationState.SECRET_UNRESOLVED],
+      ['disabled-knowledge', RegistryValidationState.VALID_DISABLED],
+      ['unrelated-module', RegistryValidationState.VALID_ENABLED],
+    ]);
+    expect(missingAccessor).toHaveBeenCalledOnce();
     expect(JSON.stringify(report)).not.toContain(sentinel);
   });
 });

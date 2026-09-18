@@ -43,6 +43,7 @@ export class SensitiveSecret {
 }
 
 export interface SolutionSecretResolver {
+  has(ref: string): boolean;
   resolve(ref: string): SensitiveSecret;
 }
 
@@ -53,6 +54,9 @@ export function createSolutionSecretResolver(
 ): SolutionSecretResolver {
   const entries = new Map(Object.entries(allowlist));
   return {
+    has(ref: string): boolean {
+      return entries.has(ref);
+    },
     resolve(ref: string): SensitiveSecret {
       const accessor = entries.get(ref);
       if (!accessor) throw new RegistrySecretError();
@@ -80,21 +84,48 @@ function isRegistrySecretSource(value: unknown): value is RegistrySecretSource {
   return false;
 }
 
-export function resolveProviderSecret(
+function isValidLogicalSecretRef(ref: string): boolean {
+  return (
+    ref.length > 0 &&
+    ref.length <= 255 &&
+    ref.split('.').every((segment) => isStableId(segment))
+  );
+}
+
+export function validateProviderSecretSource(
   source: unknown,
-  solutionResolver: SolutionSecretResolver,
+  solutionResolver?: SolutionSecretResolver,
   secretClass: RegistrySecretClass = 'provider'
-): SensitiveSecret {
+): RegistrySecretSource {
   if (secretClass !== 'provider' || !isRegistrySecretSource(source)) {
     throw new RegistrySecretError();
   }
   if (source.source === 'knowledge') {
-    return SensitiveSecret.from(source.value);
+    SensitiveSecret.from(source.value);
+    return { source: 'knowledge', value: source.value };
   }
-  if (!isStableId(source.ref.replaceAll('.', '-'))) {
+  if (
+    !isValidLogicalSecretRef(source.ref) ||
+    !solutionResolver?.has(source.ref)
+  ) {
     throw new RegistrySecretError();
   }
-  return solutionResolver.resolve(source.ref);
+  return { source: 'solution', ref: source.ref };
+}
+
+export function resolveProviderSecret(
+  source: unknown,
+  solutionResolver?: SolutionSecretResolver,
+  secretClass: RegistrySecretClass = 'provider'
+): SensitiveSecret {
+  const validated = validateProviderSecretSource(
+    source,
+    solutionResolver,
+    secretClass
+  );
+  return validated.source === 'knowledge'
+    ? SensitiveSecret.from(validated.value)
+    : solutionResolver!.resolve(validated.ref);
 }
 
 export function resolveControlPlaneBootstrapSecret(
