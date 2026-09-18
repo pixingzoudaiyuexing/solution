@@ -85,12 +85,15 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - A3 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Gemini post-code review is `PASS` with `BLOCKER/HIGH/MEDIUM/LOW: 0 / 0 / 0 / 0`.
 - Production remains `NOT AUTHORIZED / NOT DEPLOYED`: Production KV namespace/binding and Cron are not provisioned/activated, Control Plane deployment secrets are not provisioned, and Live Admin Runtime is not verified. A4 remains `NOT STARTED / NOT AUTHORIZED`.
 
-## REG-M02 Custom Pages Registry Source Migration Candidate
+## REG-M02 Custom Pages Registry Source Migration Closure
 
-- Runtime/code anchor: `b01f7d1805ff35896968106899b92f29f86c91f7`.
+- SOL-REG-M02-01 is `PASS / COMPLETE / CLOSED / RE-FROZEN`.
+- Runtime/code anchor: `b01f7d1805ff35896968106899b92f29f86c91f7`; final independently reviewed feature/main anchor: `e5bbfc6e96c04609a6db565fcbe458392e5857b1`.
+- Gemini post-code review: `PASS`; `BLOCKER/HIGH/MEDIUM/LOW: 0 / 0 / 0 / 0`.
 - Only REG-M02 `custom-pages` is added; REG-M07 and all other product modules remain unimplemented.
 - Module exposure is `authenticated`, schema version is `1`, and freshness is code-owned `STALE_TOLERANT` with max stale age `86400` seconds.
 - Strict Registry items allow only stable `id`, `title.default`, `mode`, `url` and `enabled`; enabled items persist in Registry order as flattened `{id,title,url,mode}` snapshot data.
 - `GET /api/v1/custom-pages` validates the real V2Board session through `user/info` before snapshot read. It does not impose subscription/purchase entitlement.
 - No KV/missing/corrupt/disabled/absent/stale state returns authenticated `{items:[]}`; no Notice fallback or merge occurs. Public route count remains `48`.
-- Candidate state: `IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT POST-CODE REVIEW`; it is not CLOSED, RE-FROZEN or Production Ready. Legacy Notice rows are NOT DELETED and Production cutover is NOT PERFORMED.
+- Custom Pages runtime authority is the Reserved Knowledge Registry `custom-pages` snapshot after real `user/info` session validation; there is no Notice fallback or Registry+Notice merge. Legacy Notice rows are NOT DELETED and Production cutover is NOT PERFORMED.
+- Production remains `NOT AUTHORIZED / NOT DEPLOYED`; next Registry module is NOT AUTHORIZED.

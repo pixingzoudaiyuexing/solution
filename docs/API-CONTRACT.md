@@ -1323,17 +1323,19 @@ Custom Pages 使用 Reserved Knowledge Registry 的 `custom-pages` operational s
 }
 ```
 
-Public item 严格只包含 `id/title/url/mode`。稳定 ID 为 `notice-` 加 upstream numeric Notice ID；不建立持久映射。返回顺序保持 V2Board 当前 visible Notice 顺序，不增加排序 DSL。所有响应使用 `Cache-Control: no-store`。
+Public item 严格只包含 `id/title/url/mode`。Custom Page ID 是 Registry stable ID；现有 `notice-6`、`notice-123` 等值可作为 literal migrated IDs 保留 bookmark compatibility，但一旦写入 Registry 后即是独立 stable ID，不是当前或未来 V2Board Notice numeric ID 的动态引用。Registry `enabled=true` item array order 是 authoritative presentation order；过滤 disabled items 后保持剩余顺序，不按 ID、标题或 Notice 顺序排序。所有响应使用 `Cache-Control: no-store`。
 
-Reserved namespace 为 case-sensitive exact lowercase `aureole:`：
+Legacy Notice isolation context 仍使用 case-sensitive exact lowercase `aureole:`，但这些 tags 不再是当前 Custom Pages runtime configuration：
 
 ```text
-aureole:iframe   -> candidate mode "iframe"
-aureole:external -> candidate mode "external"
-aureole:unknown  -> reserved but invalid
+aureole:iframe   -> legacy reserved Notice row
+aureole:external -> legacy reserved Notice row
+aureole:unknown  -> legacy reserved Notice row
 Aureole:iframe   -> ordinary Notice
 AUREOLE:iframe   -> ordinary Notice
 ```
+
+The legacy `aureole:*` rows may still physically exist and continue to be hidden from ordinary Notice list/detail. They are not a live Registry pointer, ID alias, Custom Pages fallback, or merge source.
 
 Registry module identity 为 `registry:custom-pages`，schema version 为 `1`，maximum exposure 为 `authenticated`，并使用 code-owned `STALE_TOLERANT` 86400-second bound。Input item 只允许 strict `id`、`title.default`、`mode`、`url` 与 `enabled`；`id` 使用 stable ID，保留既有 `notice-<numeric-id>` bookmark-compatible literal ID。mode 只能为 `iframe` 或 `external`；title 为 trim 后 1 至 255 的 plain text；URL 是无 userinfo 的 absolute HTTPS URL。enabled=false items 不进入 runtime snapshot或 Public DTO，剩余 item 保持 Registry array order。
 
