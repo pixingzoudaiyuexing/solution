@@ -64,7 +64,7 @@
 
 - `REGISTRY_KV` 是唯一 logical operational KV；固定 key 为 `registry:snapshot:v1`、`registry:health:v1` 与 `registry:alert:v1`。不允许 Registry、Browser、用户 ID、token 或 credential 选择 key/prefix，也不引入第二持久化技术。
 - Snapshot schema version 为 1。Validated config 只能进入 code-owned per-module safe projector，再经 module-specific snapshot schema 验证后持久化；禁止直接序列化 `RegistryModuleResult.useConfig()`、raw Admin response 或 raw Knowledge body。
-- Knowledge plaintext secret 与 resolved Solution secret 永不持久化。Solution secret source 最多保留 validated logical ref；Knowledge source 最多保留不含 value 的 source classification。Fingerprint 仅来自 canonical safe normalized data。
+- Knowledge plaintext secret 与 resolved Solution secret 永不持久化。Solution secret source 最多保留 validated logical ref；Knowledge source 最多保留不含 value 的 source classification。Fingerprint 仅来自 canonical safe normalized data，只是 content/correlation metadata，不是 MAC 或 freshness authority；freshness 由显式 temporal validation、`validatedAt`、code-owned policy 与 current clock 决定。
 - Latest validation state 与 LKG 独立保存。Source failure 或 invalid module 不覆盖既有 valid LKG；unrelated valid module 可更新；disabled/absent module 不保留活动 config。LKG 只有在 code-owned freshness bound 内可用。
 - Freshness class 仅由代码定义为 `STALE_TOLERANT` 或 `FRESH_REQUIRED`，positive max age 同样由代码持有。`age <= maxAge` 可用，`age > maxAge` 不可用；KV TTL 不是 correctness/security authority，也不提供 immediate/linearizable revocation。
 - Worker 可增加 internal scheduled handler 调用 refresh，但不增加 Registry/health/refresh Public route。Production KV namespace/binding 和 Cron cadence 需独立部署授权；A2 不实现 Telegram/webhook delivery、live provider probe 或产品 module。

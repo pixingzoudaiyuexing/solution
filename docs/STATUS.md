@@ -11,7 +11,7 @@ Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
 A2: IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT REVIEW
-A2 implementation code anchor: 6b48f1d35dcc911ffdef785221a26e126199edc7
+A2 implementation code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
 A2 Production KV binding / Cron: NOT PROVISIONED / NOT ACTIVATED
 A3: NOT STARTED / NOT AUTHORIZED
 ```
