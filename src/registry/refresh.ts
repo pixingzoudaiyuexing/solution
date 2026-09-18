@@ -45,7 +45,7 @@ export type RegistryRefreshResult =
     }
   | {
       ok: false;
-      snapshotWritten: false;
+      snapshotWritten: boolean;
       code: RegistryRefreshCode;
     };
 
@@ -155,7 +155,12 @@ async function sourceFailureHealth(
     let status: RegistryHealthStatus = 'error';
     let validatedAt: number | undefined;
     let ageSeconds: number | undefined;
-    if (previousModule?.lkg) {
+    if (
+      previousModule?.latest.state === RegistryValidationState.VALID_DISABLED ||
+      previousModule?.latest.state === 'ABSENT'
+    ) {
+      status = 'disabled';
+    } else if (previousModule?.lkg) {
       const freshness = evaluateRegistryFreshness(
         previousModule.lkg.validatedAt,
         definition.freshness,
@@ -169,7 +174,7 @@ async function sourceFailureHealth(
     return {
       moduleId,
       status,
-      code,
+      ...(status === 'disabled' ? {} : { code }),
       checkedAt,
       ...(validatedAt === undefined ? {} : { validatedAt }),
       ...(ageSeconds === undefined ? {} : { ageSeconds }),
@@ -418,11 +423,13 @@ export async function refreshRegistryOperationalState(
     modules: healthModules,
   };
 
+  let snapshotWritten = false;
   try {
     await persistRegistryOperationalSnapshot(kv, snapshot, definitions);
+    snapshotWritten = true;
     await persistHealthAndAlert(kv, health);
   } catch {
-    return { ok: false, snapshotWritten: false, code: 'KV_UNAVAILABLE' };
+    return { ok: false, snapshotWritten, code: 'KV_UNAVAILABLE' };
   }
   return {
     ok: true,

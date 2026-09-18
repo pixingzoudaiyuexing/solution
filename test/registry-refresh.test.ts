@@ -242,12 +242,12 @@ describe('Registry refresh safe projection and LKG', () => {
   });
 
   it('does not make fingerprints depend on omitted plaintext or raw body fields', async () => {
-    const run = async (secret: string, marker: string) => {
+    const run = async (secret: string, marker: string, now: number) => {
       const kv = new FakeKV();
       const definitions = [definition('module-a')];
       const result = await refreshRegistryOperationalState(env(kv), {
         definitions,
-        now: () => 10_000,
+        now: () => now,
         fetcher: sourceFetcher([
           {
             id: 1,
@@ -264,8 +264,8 @@ describe('Registry refresh safe projection and LKG', () => {
       return result.ok ? result.sourceFingerprint : '';
     };
 
-    expect(await run('first-secret', 'first-raw-body')).toBe(
-      await run('second-secret', 'second-raw-body')
+    expect(await run('first-secret', 'first-raw-body', 10_000)).toBe(
+      await run('second-secret', 'second-raw-body', 20_000)
     );
   });
 
@@ -682,6 +682,48 @@ describe('Registry recovery, freshness, health, and redaction', () => {
       recoveryPending: true,
     });
     expect(serializedKv(kv)).not.toContain('RAW_ADMIN_SENTINEL');
+  });
+
+  it('keeps a disabled module disabled when a later source refresh fails', async () => {
+    const kv = new FakeKV();
+    const definitions = [definition('module-a')];
+    await refreshRegistryOperationalState(env(kv), {
+      definitions,
+      now: () => 10_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'module-a',
+          body: registryBody(
+            'module-a',
+            {
+              value: 'disabled',
+              secret: { source: 'knowledge', value: 'secret' },
+            },
+            false
+          ),
+        },
+      ]),
+    });
+    await refreshRegistryOperationalState(env(kv), {
+      definitions,
+      now: () => 20_000,
+      fetcher: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ message: 'safe failure' }, 500)),
+    });
+
+    expect(await loadRegistryHealth(kv.binding())).toMatchObject({
+      source: { status: 'error', code: 'CONTROL_PLANE_UPSTREAM_ERROR' },
+      modules: [
+        {
+          moduleId: 'module-a',
+          status: 'disabled',
+          checkedAt: 20_000,
+          consecutiveFailures: 0,
+        },
+      ],
+    });
   });
 });
 

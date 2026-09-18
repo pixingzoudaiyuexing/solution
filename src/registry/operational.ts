@@ -19,6 +19,28 @@ const timestampSchema = z.number().int().nonnegative();
 const stableIdSchema = z.string().refine(isStableId);
 const exposureSchema = z.enum(['public', 'authenticated', 'internal']);
 const healthStatusSchema = z.enum(['ok', 'degraded', 'error', 'disabled']);
+const healthCodeSchema = z.enum([
+  'CONTROL_PLANE_AUTH_INVALID',
+  'CONTROL_PLANE_CONFIG_INVALID',
+  'CONTROL_PLANE_TIMEOUT',
+  'CONTROL_PLANE_UPSTREAM_ERROR',
+  'KV_UNAVAILABLE',
+  'VALID_ENABLED',
+  'VALID_DISABLED',
+  'INVALID_SYNTAX',
+  'INVALID_SCHEMA',
+  'UNSUPPORTED_VERSION',
+  'DUPLICATE_MODULE',
+  'DEPENDENCY_INVALID',
+  'SECRET_UNRESOLVED',
+  'DUPLICATE_ITEM_ID',
+  'EXPOSURE_BROADENING',
+  'IDENTITY_INVALID',
+  'REFERENCE_INVALID',
+  'UNKNOWN_MODULE',
+  'MODULE_ABSENT',
+  'SNAPSHOT_PROJECTION_INVALID',
+]);
 
 const validationStateSchema = z.nativeEnum(RegistryValidationState);
 const validationCodeSchema = z.enum([
@@ -215,13 +237,27 @@ async function moduleFingerprint(
   moduleId: string,
   lkg: Omit<RegistryModuleLkg, 'sourceFingerprint'>
 ): Promise<string> {
-  return sha256({ moduleId, ...lkg });
+  return sha256({
+    moduleId,
+    ...(lkg.source === undefined ? {} : { source: lkg.source }),
+    ...(lkg.exposure === undefined ? {} : { exposure: lkg.exposure }),
+    config: lkg.config,
+  });
 }
 
 async function snapshotFingerprint(
   snapshot: Omit<RegistryOperationalSnapshot, 'sourceFingerprint'>
 ): Promise<string> {
-  return sha256(snapshot);
+  return sha256({
+    schemaVersion: snapshot.schemaVersion,
+    modules: snapshot.modules.map((module) => ({
+      moduleId: module.moduleId,
+      latest: module.latest,
+      ...(module.lkg === undefined
+        ? {}
+        : { lkgSourceFingerprint: module.lkg.sourceFingerprint }),
+    })),
+  });
 }
 
 export async function createRegistryModuleLkg<SnapshotConfig>(input: {
@@ -281,10 +317,18 @@ async function validateSnapshot(
     if (!definition) return null;
     if (
       (module.latest.state === RegistryValidationState.VALID_ENABLED &&
-        module.lkg === undefined) ||
+        (module.latest.enabled !== true || module.lkg === undefined)) ||
       ((module.latest.state === RegistryValidationState.VALID_DISABLED ||
         module.latest.state === 'ABSENT') &&
-        module.lkg !== undefined)
+        (module.lkg !== undefined ||
+          (module.latest.state === RegistryValidationState.VALID_DISABLED &&
+            module.latest.enabled !== false) ||
+          (module.latest.state === 'ABSENT' &&
+            module.latest.enabled !== undefined))) ||
+      ((module.latest.state !== RegistryValidationState.VALID_ENABLED &&
+        module.latest.state !== RegistryValidationState.VALID_DISABLED &&
+        module.latest.state !== 'ABSENT') &&
+        module.latest.enabled !== undefined)
     ) {
       return null;
     }
@@ -438,7 +482,7 @@ const healthModuleSchema = z
   .object({
     moduleId: stableIdSchema,
     status: healthStatusSchema,
-    code: z.string().min(1).max(128).optional(),
+    code: healthCodeSchema.optional(),
     checkedAt: timestampSchema,
     validatedAt: timestampSchema.optional(),
     ageSeconds: z.number().int().nonnegative().optional(),
@@ -455,7 +499,7 @@ const healthEnvelopeSchema = z
     source: z
       .object({
         status: healthStatusSchema,
-        code: z.string().min(1).max(128).optional(),
+        code: healthCodeSchema.optional(),
       })
       .strict(),
     modules: z.array(healthModuleSchema),
