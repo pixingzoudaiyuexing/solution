@@ -12,6 +12,7 @@
 | `POST /api/v1/auth/password/reset`     | No             | `passport/auth/forget`          |
 | `GET /api/v1/config/onboarding`        | No             | `guest/comm/config`             |
 | `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
+| `GET /api/v1/config/runtime`           | No             | Registry operational snapshot   |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
 | `GET /api/v1/me/preferences`           | Yes            | `user/info`                     |
@@ -1528,9 +1529,11 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 ## Phase 2L v1 Contract Freeze
 
-solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-03B Dynamic Custom Pages 增加一个 authenticated API 后，本文件顶部矩阵包含 47 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
+solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-03B Dynamic Custom Pages 增加 authenticated API 后 route count 曾为 47；A3 只新增 `GET /api/v1/config/runtime`，本文件顶部矩阵当前包含 48 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
 
 A1 `SOL-REG-KERNEL-01` 只增加 internal Control Plane / Registry validation kernel，不增加或改变任何 Public Contract；真实 source route count 继续为 47。不存在 `/api/v1/registry`、`/api/v1/control-plane`、refresh/raw/maintenance 等隐藏 Public route，Browser request也不会触发 Admin Knowledge acquisition。
+
+A3 `SOL-REG-KERNEL-03` 以 additive extension 增加一个 anonymous Runtime Settings read route，使当前 route count 为 48。它是显式七字段 DTO，不是 generic Registry Browser API；不存在 Public Registry raw、health、check、refresh 或 maintenance route。
 
 v1 已实现范围包括 Authentication、Onboarding/Config、Account、Catalog、Orders、Billing/Checkout、Promotions、Wallet、Subscription、Tickets、Notices、Traffic、Referrals/Commission/Withdrawal 和 Gift Card Redemption。V2Board 继续拥有用户、订单、支付、wallet、subscription、ticket、notice、traffic、invite、commission、withdrawal 与 Gift Card 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
@@ -2038,3 +2041,35 @@ Public DTO 不包含 Stripe public key/route、Telegram config、withdrawal meth
 | 401 | `AUTH_FAILED` | V2Board 拒绝 Preferences / Account Config credential |
 | 502 | `UPSTREAM_ERROR` | malformed field、非法 Terms URL、矛盾 anti-bot config、HTML、invalid JSON 或未知 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | V2Board 请求超时 |
+
+## A3 Registry Runtime Settings
+
+```http
+GET /api/v1/config/runtime
+```
+
+本接口无需 Bearer，只读取现有 `REGISTRY_KV` 中经过 A1 validation、A2 safe projection 与 snapshot schema 验证的 `runtime-settings` module。Browser 请求不会调用 Admin Knowledge、Control Plane、Registry refresh、V2Board API、logo/favicon URL 或任何 external provider，并始终设置 `Cache-Control: no-store`。
+
+Success / fallback 均返回 HTTP 200：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "siteName": null,
+    "brandName": null,
+    "title": null,
+    "description": null,
+    "logoUrl": null,
+    "faviconUrl": null,
+    "footerText": null
+  },
+  "requestId": "request-id"
+}
+```
+
+七个 Public fields 始终存在，类型均为 `string | null`。Registry 中缺少的 optional value 映射为 `null`；Solution 不复制 Aureole compiled defaults。`siteName`、`brandName` trim 后长度为 1 至 120，`title` 为 1 至 160，`description` 与 `footerText` 为 1 至 512；这些字段是 plain text，拒绝 markup delimiters 与 unsafe control characters。`logoUrl`、`faviconUrl` 只允许无 userinfo 的 absolute HTTPS URL，Solution 不 fetch/probe URL。
+
+`runtime-settings` 使用 code-owned `STALE_TOLERANT` policy，最大 LKG age 为 `86400` 秒。`age <= 86400` 时可返回 safe LKG；超过边界、future/temporally-invalid snapshot、binding 缺失、snapshot missing/corrupt、module absent/disabled/unavailable 或没有 usable LKG 时均返回 all-null DTO。Latest validation invalid 但 retained LKG 仍在 24 小时内时可继续返回该 LKG；内部 validation/health/freshness/error reason 不进入 Public response。
+
+Public DTO 只包含上述七个字段。Raw Registry body/config、enabled/latest validation state、health/code、freshness class、age、timestamps、source metadata/fingerprint、secret/ref、Admin/V2Board origin/path、KV key 与 Control Plane failure 均不公开。

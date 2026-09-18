@@ -21,6 +21,26 @@ export interface AccountConfig {
   currencySymbol: string;
 }
 
+export interface RuntimeSettingsConfig {
+  siteName: string | null;
+  brandName: string | null;
+  title: string | null;
+  description: string | null;
+  logoUrl: string | null;
+  faviconUrl: string | null;
+  footerText: string | null;
+}
+
+export const EMPTY_RUNTIME_SETTINGS_CONFIG: RuntimeSettingsConfig = {
+  siteName: null,
+  brandName: null,
+  title: null,
+  description: null,
+  logoUrl: null,
+  faviconUrl: null,
+  footerText: null,
+};
+
 export interface OnboardingConfigSuccessResponse {
   ok: true;
   data: OnboardingConfig;
@@ -30,5 +50,11 @@ export interface OnboardingConfigSuccessResponse {
 export interface AccountConfigSuccessResponse {
   ok: true;
   data: AccountConfig;
+  requestId: string;
+}
+
+export interface RuntimeSettingsConfigSuccessResponse {
+  ok: true;
+  data: RuntimeSettingsConfig;
   requestId: string;
 }
