@@ -17,7 +17,7 @@
 V1 CONTRACT BASELINE FROZEN
 ```
 
-CF-03B Dynamic Custom Pages 以向后兼容的 additive extension 新增 authenticated `/api/v1/custom-pages`；真实 source route tree 包含 47 个 `/api/v1` Public routes。V2Board visible Notice 是 Custom Page 唯一 SSOT；Solution request-locally 完整收集、分类、过滤并重分页，不保存第二配置源或 fetch target URL。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
+CF-03B Dynamic Custom Pages 以向后兼容的 additive extension 新增 authenticated `/api/v1/custom-pages`；真实 source route tree 包含 47 个 `/api/v1` Public routes。V2Board visible Notice 是当前 Custom Page runtime SSOT；Solution request-locally 完整收集、分类、过滤并重分页，不保存第二配置源或 fetch target URL，Aureole 当前已消费该路由。Notice-backed CF-03B 是 transitional implementation baseline；最终已冻结方向为 Reserved Knowledge Registry -> Solution -> Aureole，现有 Notice runtime 保留至 verified replacement 与 explicit cleanup authorization。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、knowledge、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 
@@ -31,7 +31,9 @@ Phase 2W 为 onboarding requirements、current preferences 和 currency 提供�
 
 Wallet Balance Read 只把官方 `user/info.balance` 原样映射为 `balanceMinor`。Wallet Deposit 仅映射 V2Board 原生 `plan_id=0/period=deposit` Order Create；Gateway 不计算、合并、缓存或修改余额，不计算 bonus，也不持有 checkout、callback 或支付状态。Deposit、commission transfer、Gift Card、订单抵扣和 cancellation/refund 继续由 V2Board 持有。
 
-Telegram Public API、普通 User Knowledge / Help Center Public API 和 multi-level commission distribution 是当前明确 Non-goals。Reserved Admin Knowledge 只用于 internal Registry raw source，不改变普通 Knowledge 的 Public边界。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
+普通 User Knowledge / Help Center Public API 与 Telegram Registry Ops 当前均未实现，但不是永久项目禁止项。普通 Knowledge 的已冻结未来方向为 ordinary V2Board Knowledge -> Solution safe adapter -> Aureole native Help Center；Reserved Admin Knowledge 只用于 internal Registry raw source，ordinary Knowledge 不得因正文类似 Registry JSON 而成为 Registry，reserved records 也不得泄露到 Help Center。Telegram 的已冻结未来方向为 owner-only、read-only Registry health / check / alert surface；当前没有 bot、scheduler、alerts 或 Telegram runtime。Multi-level commission distribution 仍是明确业务 Non-goal，部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
+
+CF-02 Multiple Subscription Entries 当前仍依赖既有 CC V2Board compatibility endpoints。这是 transitional compatibility dependency，不是永久架构原则：所有新 CC 开发遵循 V2Board Zero-Patch；最终方向为 Reserved Knowledge Registry configuration + Solution runtime + Official V2Board token / entitlement / content authority。当前 CF-02 保留至 verified replacement 与 explicit cleanup authorization；未来升级不得默认 reapply CF-02 patches，且 Payment / Order hardening 独立于其 cleanup。
 
 ## 运行时配置
 - Public API CORS 固定使用 `Access-Control-Allow-Origin: *`，不输出 `Access-Control-Allow-Credentials`。Frontend domain 是可替换的 browser client location，不是 authentication / authorization identity；更换域名不要求修改 solution 配置或重新部署 solution。

@@ -3,11 +3,17 @@
 ## Current Contract
 
 ```text
-Frozen public baseline: 939239859abaa68f155fbe6b32f9e628cbec3698
-Current implementation branch: codex/sol-reg-kernel-01
+Solution A1: PASS / COMPLETE / CLOSED / RE-FROZEN
+Reviewed A1 implementation anchor: 7331e68121d6a03aec83cb1d0cbc0ee23e1c9f52
+Gemini final review: PASS (BLOCKER: 0, HIGH: 0)
 Public routes: 47
-A1 production deployment: NOT AUTHORIZED
+Production: NOT DEPLOYED
+Control Plane deployment secrets: NOT PROVISIONED
+Live Admin Runtime: NOT VERIFIED
+A2: NOT STARTED / NOT AUTHORIZED
 ```
+
+本文件后续的 docs-only reconciliation commit 不改变上述已审阅的 A1 implementation anchor，也不表示 A1 runtime/code 被重新审阅或修改。
 
 ## CF-03B Dynamic Custom Pages
 
@@ -19,21 +25,28 @@ A1 production deployment: NOT AUTHORIZED
 - Public authenticated contract: `GET /api/v1/custom-pages` returning only `id/title/url/mode`.
 - Custom Page target URLs are validated as HTTPS and are never fetched, probed, proxied, or given credentials by Solution.
 
-## Consumer Boundary
+## Current Consumer Runtime
 
-A future Aureole task may migrate its runtime source to:
+当前 Aureole 已使用：
 
 ```text
 V2Board Notice -> Solution /api/v1/custom-pages
 ```
 
-That migration has not happened. This phase does not define dynamic/static merge or static runtime fallback.
+Notice-backed CF-03B 是当前 transitional implementation baseline，不是最终项目 SSOT。最终已冻结方向为：
 
-## A1 Registry Kernel Checkpoint
+```text
+Reserved Knowledge Registry -> Solution -> Aureole
+```
+
+当前 Notice implementation 保持运行，直到 replacement 具备 implementation evidence、regression/security review、staging/Owner acceptance 与 explicit cleanup authorization。本阶段不定义 dynamic/static merge 或 runtime fallback。
+
+## A1 Registry Kernel Closure
 
 - Internal deployment bindings: `V2BOARD_CONTROL_AUTH_DATA`, `V2BOARD_CONTROL_ADMIN_PREFIX`.
 - Control Plane source: Official V2Board Admin Knowledge list/detail, read-only and zero-patch.
 - Reserved category: `__AUREOLE_REGISTRY__`; envelope kind: `aureole.registry`; supported core version: `1`.
 - Validation kernel includes strict envelopes, module isolation, stable IDs/references/cycle detection, code-owned exposure, DTO allowlist projection and dual provider Secret Source primitives.
 - No Public Registry route, generic Admin proxy, Admin mutation, data-plane Admin fetch, KV/snapshot/Cron/health scheduler or A2 implementation.
-- A1 implementation remains pending independent Gemini Post-Code Review until its feature commit is reviewed and merged.
+- A1 已完成并 re-frozen；Gemini final review 为 PASS，BLOCKER 与 HIGH 均为 0。
+- Residual: `REG-KERNEL-003` 为 MEDIUM / NEEDS RUNTIME EVIDENCE；真实目标部署中 Admin Knowledge 的 `id/show` JSON serialization types 尚未 runtime verified。

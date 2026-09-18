@@ -26,7 +26,7 @@
 - V2Board subscription route 来自固定部署配置，public request 不能选择 upstream path、origin 或额外 query。
 - 成功 subscription body 使用 `Response.body` verbatim stream，不读取、不缓存、不转换协议；只转发经批准的 subscription response headers。
 - subscription client `User-Agent` 仅通过显式受控通道转发，不放宽全局 header allowlist。
-- CF-02 以 `pixingzoudaiyuexing/v2board@45e03f8683b549ae5f1e10b15b634ed624787d72` 的 VB-CF02-001 `GET user/getSubscribeEntries` 与 VB-CF02-002 `POST user/getSubscribeForEntry` 为冻结依赖。V2Board `config('v2board.subscribe_url')` 是唯一 entry SSOT；未来升级必须保留或提供等价 capability。
+- CF-02 以 `pixingzoudaiyuexing/v2board@45e03f8683b549ae5f1e10b15b634ed624787d72` 的 VB-CF02-001 `GET user/getSubscribeEntries` 与 VB-CF02-002 `POST user/getSubscribeForEntry` 为当前 transitional runtime dependency。V2Board `config('v2board.subscribe_url')` 是唯一 entry SSOT；该 dependency 保留至 Registry + Solution replacement 实现并接受 equivalence/security/staging 验收。所有新工作遵循 Zero-Patch，未来升级不得默认 reapply CF-02 patch；最终方向为 Reserved Knowledge Registry configuration + Solution runtime + Official V2Board token / entitlement / content authority。移除须在独立 cleanup task 中获得 explicit authorization；Payment / Order hardening 独立于 CF-02 cleanup，不能随之移除。
 - CF-02 selected-entry access 将 Browser 的 literal `baseUrl` 仅作为 JSON `base_url` 发送到固定配置的 V2Board client，由 V2Board 完成 canonicalization、exact membership、subscribe path 和 credential generation。Solution 不把该值用作 fetch target、origin、hostname、dynamic path 或 redirect，不做 prefix/base/suffix inference。
 - CF-02 成功时直接返回 V2Board 生成的完整 opaque credential URL 为 `accessUrl`，不解析 token、不重建 URL，也不经过 legacy `/api/v1/access/subscription` proxy；legacy solution-owned URL 与 verbatim streaming 行为保持不变。
 
@@ -46,7 +46,7 @@
 - Solution 以固定 upstream `pageSize=100` 完整收集 visible Notices，验证稳定 total、progress 和 unique ID，再对 ordinary records 重分页；不返回 silent truncation。
 - Custom Page ID 为 request-time `notice-<upstream id>`，title/content 只做 trim 和严格 HTTPS URL validation；不解析 HTML/Markdown、不提取第一条 URL、不持久化映射。
 - Target URL 永不成为 Solution outbound destination，不执行 fetch、HEAD、DNS probe、redirect follow、proxy、Authorization/token injection 或 cookie bridge。
-- Future Aureole consumer 将读取 authenticated `/api/v1/custom-pages`；Aureole migration、static source removal、dynamic/static merge 和 runtime fallback 不属于本 Solution task。
+- Aureole 当前已读取 authenticated `/api/v1/custom-pages`。Notice-backed Custom Pages 是当前 transitional implementation baseline；最终方向为 Reserved Knowledge Registry -> Solution -> Aureole，迁移尚未完成。当前 Notice implementation 的替换需先有 implementation evidence、regression/security review、staging/Owner acceptance 与 explicit cleanup authorization；不定义 merge 或 runtime fallback。
 
 ## D-016 Registry Control Plane 与 Validation Kernel
 
