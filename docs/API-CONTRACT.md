@@ -45,7 +45,7 @@
 | `POST /api/v1/tickets/{id}/close`      | Yes            | `user/ticket/close`             |
 | `GET /api/v1/notices`                  | Yes            | `user/notice/fetch`             |
 | `GET /api/v1/notices/{id}`             | Yes            | `user/notice/fetch?id={id}`     |
-| `GET /api/v1/custom-pages`             | Yes            | complete `user/notice/fetch` collection |
+| `GET /api/v1/custom-pages`             | Yes            | `user/info` session validation + Registry operational snapshot |
 | `GET /api/v1/traffic/logs`             | Yes            | `user/stat/getTrafficLog`       |
 | `GET /api/v1/referrals`                | Yes            | `user/invite/fetch`             |
 | `POST /api/v1/referrals/codes`         | Yes            | `GET user/invite/save`          |
@@ -1304,7 +1304,7 @@ GET /api/v1/custom-pages
 Authorization: Bearer <opaque-token>
 ```
 
-V2Board Notice 是 Custom Page 管理与数据的唯一 SSOT，V2Board 无需 patch。Solution 使用与 ordinary Notice list 相同的完整 visible collection，识别 reserved namespace 并返回：
+Custom Pages 使用 Reserved Knowledge Registry 的 `custom-pages` operational snapshot 作为唯一 runtime source。Solution 先通过 `GET user/info` 验证 Bearer 对应的真实 V2Board session，再读取现有 `REGISTRY_KV` validated snapshot 并返回：
 
 ```json
 {
@@ -1335,15 +1335,11 @@ Aureole:iframe   -> ordinary Notice
 AUREOLE:iframe   -> ordinary Notice
 ```
 
-Valid record 必须且只能包含一个 reserved mode tag；ordinary tags 可以同时存在。两个 mode、unknown reserved tag、valid mode 加 unknown reserved tag或 duplicate reserved mode 都是 semantic-invalid reserved record：从 ordinary Notice 与 custom-pages 同时隐藏，但不影响其他 valid item。`tags` 非 array、非法 ID/title/content type 等 structural corruption 仍使整个请求 fail closed，不会被当作 semantic-invalid 跳过。
+Registry module identity 为 `registry:custom-pages`，schema version 为 `1`，maximum exposure 为 `authenticated`，并使用 code-owned `STALE_TOLERANT` 86400-second bound。Input item 只允许 strict `id`、`title.default`、`mode`、`url` 与 `enabled`；`id` 使用 stable ID，保留既有 `notice-<numeric-id>` bookmark-compatible literal ID。mode 只能为 `iframe` 或 `external`；title 为 trim 后 1 至 255 的 plain text；URL 是无 userinfo 的 absolute HTTPS URL。enabled=false items 不进入 runtime snapshot或 Public DTO，剩余 item 保持 Registry array order。
 
-Title 输出为 `trim(title)`，必须非空并受现有 Notice 255 字符上限约束。URL candidate 是完整 `trim(content)`；不执行 HTML/Markdown parser、regex URL extraction、first-http-string 或 strip HTML。Candidate 必须能被标准 URL parser 解析为 absolute URL，protocol 为 `https:`、hostname 非空且不含 username/password。允许 custom port、path、query、fragment 与 trailing slash；输出保持 trim 后配置字符串，不用 `URL.toString()` 重写。
+`GET /api/v1/custom-pages` 要求 Bearer，并首先执行既有 canonical `AUTH_REQUIRED`/`AUTH_FAILED` normalization。成功 session validation 后，缺少/损坏/disabled/absent/stale Registry state 均返回 HTTP 200 `{ "items": [] }`，不会回退到 Notice，也不会合并 Registry 与 Notice。不存在 subscription entitlement/purchase gate。Solution 不请求 target：不会执行 fetch/HEAD/DNS/availability probe、redirect follow、iframe proxy、token/Authorization 注入或 cookie bridge。Custom Pages Browser request 在 session validation 之外不调用 Admin Knowledge、Control Plane、Registry refresh、Notice API、V2Board其他 API 或 external provider。
 
-Blank title、HTTP/relative/malformed URL、`javascript:`、`data:`、`file:`、`blob:`、userinfo 或其他 semantic-invalid reserved record 会被静默省略。Solution 不请求 target：不会执行 fetch/HEAD/DNS/availability probe、redirect follow、iframe proxy、token/Authorization 注入或 cookie bridge。唯一 outbound destination 仍是固定配置的 V2Board origin。
-
-`GET /api/v1/custom-pages` 要求 Bearer，并沿用 `AUTH_REQUIRED`、`AUTH_FAILED`、`UPSTREAM_ERROR` 与 `UPSTREAM_TIMEOUT`。V2Board `user/notice/fetch` 已只返回 `show=1`，因此 Public Contract 不增加 `enabled` 或 hidden-item query。
-
-未来 Aureole migration 将以 `V2Board Notice -> Solution /custom-pages` 作为单一 runtime Custom Page SSOT。Aureole 当前尚未迁移；本阶段不定义 dynamic + static merge，也不定义 dynamic failure 到 static runtime fallback。
+Public DTO 不公开 `enabled`、Registry module/schema/exposure、validation/health/freshness/source metadata、fingerprint、raw config/body、secret/ref、KV key 或 Control Plane error。普通 Notice list/detail 仍维持 lowercase `aureole:*` reserved-row isolation；legacy Notice rows不在本阶段删除。
 
 ### Traffic History
 

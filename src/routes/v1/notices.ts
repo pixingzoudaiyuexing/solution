@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { createV2BoardClient } from '../../adapters/v2board/factory';
+import { V2BoardAuthAdapter } from '../../adapters/v2board/auth';
 import { V2BoardNoticesAdapter } from '../../adapters/v2board/notices';
 import type { Env } from '../../config/env';
 import { GatewayError } from '../../contract/error';
@@ -11,6 +12,9 @@ import type {
   NoticesSuccessResponse,
 } from '../../contract/v1/notices';
 import { requestId } from '../../http/request-id';
+import { registryOperationalDefinitions } from '../../registry/definitions';
+import { customPagesOperationalDefinition } from '../../registry/modules/custom-pages';
+import { readRegistryModuleSnapshot } from '../../registry/operational';
 import {
   requireAuthorization,
   type GatewayContext,
@@ -39,6 +43,10 @@ const noticeIdSchema = positiveIntegerString.refine(
 
 function adapter(env: Env): V2BoardNoticesAdapter {
   return new V2BoardNoticesAdapter(createV2BoardClient(env));
+}
+
+function authAdapter(env: Env): V2BoardAuthAdapter {
+  return new V2BoardAuthAdapter(createV2BoardClient(env));
 }
 
 function pagination(url: string): NoticePageRequest {
@@ -91,7 +99,24 @@ noticesRouter.get('/:id', requireAuthorization, async (c) => {
 });
 
 customPagesRouter.get('/', requireAuthorization, async (c) => {
-  const items = await adapter(c.env).customPages(c.get('authToken'));
+  await authAdapter(c.env).currentUser(c.get('authToken'));
+  let items: CustomPagesSuccessResponse['data']['items'] = [];
+  if (c.env.REGISTRY_KV) {
+    const result = await readRegistryModuleSnapshot(
+      c.env.REGISTRY_KV,
+      customPagesOperationalDefinition,
+      Date.now(),
+      registryOperationalDefinitions
+    );
+    if (result.status === 'available') {
+      items = result.config.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        url: item.url,
+        mode: item.mode,
+      }));
+    }
+  }
   const response: CustomPagesSuccessResponse = {
     ok: true,
     data: { items },

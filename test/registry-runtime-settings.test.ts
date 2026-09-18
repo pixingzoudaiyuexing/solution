@@ -90,9 +90,11 @@ describe('REG-M01 Runtime Settings definition', () => {
       maxStaleAgeSeconds: 86_400,
     });
     expect(RUNTIME_SETTINGS_MAX_STALE_AGE_SECONDS).toBe(86_400);
-    expect(registryOperationalDefinitions).toEqual([
-      runtimeSettingsOperationalDefinition,
-    ]);
+    expect(
+      registryOperationalDefinitions.find(
+        (definition) => definition.registryDefinition.moduleId === 'runtime-settings'
+      )
+    ).toBe(runtimeSettingsOperationalDefinition);
   });
 
   it('accepts all seven bounded presentation fields and normalizes trim', () => {
@@ -203,7 +205,11 @@ describe('REG-M01 refresh and snapshot integration', () => {
     );
     expect(loaded.status).toBe('valid');
     if (loaded.status === 'valid') {
-      expect(loaded.snapshot.modules).toEqual([
+      expect(
+        loaded.snapshot.modules.find(
+          (module) => module.moduleId === 'runtime-settings'
+        )
+      ).toEqual(
         expect.objectContaining({
           moduleId: 'runtime-settings',
           latest: {
@@ -221,8 +227,8 @@ describe('REG-M01 refresh and snapshot integration', () => {
               footerText: 'Footer',
             },
           }),
-        }),
-      ]);
+        })
+      );
     }
     const bytes = kv.values.get(REGISTRY_SNAPSHOT_KEY) ?? '';
     for (const forbidden of [
@@ -254,7 +260,11 @@ describe('REG-M01 refresh and snapshot integration', () => {
     );
     expect(loaded.status).toBe('valid');
     if (loaded.status === 'valid') {
-      expect(loaded.snapshot.modules[0]).toMatchObject({
+      expect(
+        loaded.snapshot.modules.find(
+          (module) => module.moduleId === 'runtime-settings'
+        )
+      ).toMatchObject({
         latest: { state: RegistryValidationState.INVALID_SCHEMA },
         lkg: { validatedAt: 10_000, config: { siteName: 'Good' } },
       });
@@ -267,7 +277,11 @@ describe('REG-M01 refresh and snapshot integration', () => {
     );
     expect(loaded.status).toBe('valid');
     if (loaded.status === 'valid') {
-      expect(loaded.snapshot.modules[0]).toEqual({
+      expect(
+        loaded.snapshot.modules.find(
+          (module) => module.moduleId === 'runtime-settings'
+        )
+      ).toEqual({
         moduleId: 'runtime-settings',
         latest: {
           state: RegistryValidationState.VALID_DISABLED,
@@ -283,7 +297,11 @@ describe('REG-M01 refresh and snapshot integration', () => {
     );
     expect(loaded.status).toBe('valid');
     if (loaded.status === 'valid') {
-      expect(loaded.snapshot.modules[0]).toEqual({
+      expect(
+        loaded.snapshot.modules.find(
+          (module) => module.moduleId === 'runtime-settings'
+        )
+      ).toEqual({
         moduleId: 'runtime-settings',
         latest: { state: 'ABSENT' },
       });
