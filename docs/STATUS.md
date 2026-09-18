@@ -9,13 +9,14 @@ Gemini final review: PASS (BLOCKER: 0, HIGH: 0)
 A2: PASS / COMPLETE / CLOSED / RE-FROZEN
 Reviewed A2 runtime/code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
 Gemini A2 follow-up review: PASS (BLOCKER: 0, HIGH: 0)
-Public routes: 47
+Public routes: 48
 Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
 A2 Production KV namespace / binding: NOT PROVISIONED
 A2 Production Cron: NOT ACTIVATED
-A3: NOT STARTED / NOT AUTHORIZED
+A3: IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT POST-CODE REVIEW
+A3 runtime/code anchor: fa5b7714c7ecd61b49a977729a7ec652fb8e61ab
 ```
 
 Reviewed/current repository baseline before this reconciliation: `472635dbedb8efb23cb070ad827db970ddabf56f`. The docs-only reconciliation commit after A2 closure does not modify or re-review the A2 runtime/code anchor.
@@ -69,3 +70,13 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Residual: `REG-KERNEL-003` remains `MEDIUM / NEEDS RUNTIME EVIDENCE`; real target Admin Knowledge `id/show` JSON serialization types remain runtime-unverified.
 - Cloudflare KV eventual consistency is an accepted platform limitation. Snapshot, health and alert use separate KV writes and may temporarily show a cross-generation observability mismatch; this is an accepted LOW residual.
 - Production remains `NOT DEPLOYED`: KV namespace/binding and Cron are not provisioned/activated, Control Plane deployment secrets are not provisioned, and live Admin Runtime is not verified.
+
+## A3 Registry Runtime Settings Candidate
+
+- Only REG-M01 `runtime-settings` is registered; REG-M07 and all other product modules remain unimplemented.
+- `runtime-settings` exposure is `public`, schema version is `1`, and code-owned freshness is `STALE_TOLERANT` with max stale age `86400` seconds.
+- Strict config and snapshot schemas allow only `siteName`, `brandName`, `title`, `description`, `logoUrl`, `faviconUrl` and `footerText`; the Public DTO always returns all seven as `string | null`.
+- `GET /api/v1/config/runtime` is anonymous, `no-store`, reads only the validated A2 `REGISTRY_KV` snapshot and performs zero Admin/Control Plane/refresh/V2Board/external fetches.
+- Missing/corrupt/disabled/absent/stale/future-invalid state returns the all-null HTTP 200 fallback. A usable retained LKG is allowed only through the exact 24-hour boundary.
+- Current Public route count is `48`; no generic Registry, raw, health, check or refresh route exists.
+- A3 remains `IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT POST-CODE REVIEW`; it is not CLOSED, RE-FROZEN or Production Ready.
