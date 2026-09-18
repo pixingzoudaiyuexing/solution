@@ -101,6 +101,8 @@ interface SourceModule {
   moduleId: string;
   body: string;
   updatedAt?: number;
+  title?: string;
+  show?: 0 | 1;
 }
 
 function sourceFetcher(modules: readonly SourceModule[]): typeof fetch {
@@ -111,9 +113,9 @@ function sourceFetcher(modules: readonly SourceModule[]): typeof fetch {
       return jsonResponse({
         data: modules.map((module) => ({
           id: module.id,
-          title: `registry:${module.moduleId}`,
+          title: module.title ?? `registry:${module.moduleId}`,
           category: '__AUREOLE_REGISTRY__',
-          show: 1,
+          show: module.show ?? 1,
           updated_at: module.updatedAt ?? 100,
           raw: 'RAW_ADMIN_SENTINEL',
         })),
@@ -125,9 +127,9 @@ function sourceFetcher(modules: readonly SourceModule[]): typeof fetch {
     return jsonResponse({
       data: {
         id: module.id,
-        title: `registry:${module.moduleId}`,
+        title: module.title ?? `registry:${module.moduleId}`,
         category: '__AUREOLE_REGISTRY__',
-        show: 1,
+        show: module.show ?? 1,
         updated_at: module.updatedAt ?? 100,
         body: module.body,
         raw: 'RAW_ADMIN_SENTINEL',
@@ -681,6 +683,37 @@ describe('Registry recovery, freshness, health, and redaction', () => {
       consecutiveFailures: 0,
       recoveryPending: true,
     });
+    await refreshRegistryOperationalState(env(kv), {
+      definitions,
+      now: () => 30_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'module-a',
+          body: registryBody('module-a', {
+            value: 'still-healthy',
+            secret: { source: 'knowledge', value: 'secret' },
+          }),
+        },
+      ]),
+    });
+    expect(await loadRegistryAlertState(kv.binding())).toMatchObject({
+      lastStatus: 'ok',
+      consecutiveFailures: 0,
+      recoveryPending: true,
+    });
+    await refreshRegistryOperationalState(env(kv), {
+      definitions,
+      now: () => 40_000,
+      fetcher: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ message: 'safe failure' }, 500)),
+    });
+    expect(await loadRegistryAlertState(kv.binding())).toMatchObject({
+      lastStatus: 'degraded',
+      consecutiveFailures: 1,
+      recoveryPending: false,
+    });
     expect(serializedKv(kv)).not.toContain('RAW_ADMIN_SENTINEL');
   });
 
@@ -723,6 +756,115 @@ describe('Registry recovery, freshness, health, and redaction', () => {
           consecutiveFailures: 0,
         },
       ],
+    });
+  });
+});
+
+describe('Registry static source health', () => {
+  it('reports active unknown modules as a normalized source error', async () => {
+    const kv = new FakeKV();
+    await refreshRegistryOperationalState(env(kv), {
+      definitions: [],
+      now: () => 10_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'unknown-module',
+          body: registryBody('unknown-module', {
+            value: 'unknown',
+            secret: { source: 'knowledge', value: 'RAW_KNOWLEDGE_SENTINEL' },
+          }),
+        },
+      ]),
+    });
+
+    expect(await loadRegistryHealth(kv.binding())).toMatchObject({
+      status: 'error',
+      source: { status: 'error', code: 'REGISTRY_SOURCE_INVALID' },
+    });
+    expect(serializedKv(kv)).not.toContain('RAW_KNOWLEDGE_SENTINEL');
+  });
+
+  it('reports reserved-invalid identity without exposing its raw fields', async () => {
+    const kv = new FakeKV();
+    await refreshRegistryOperationalState(env(kv), {
+      definitions: [],
+      now: () => 10_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'ignored',
+          title: 'RAW_ADMIN_SENTINEL malformed-title',
+          body: 'RAW_KNOWLEDGE_SENTINEL',
+        },
+      ]),
+    });
+
+    expect(await loadRegistryHealth(kv.binding())).toMatchObject({
+      status: 'error',
+      source: { status: 'error', code: 'REGISTRY_SOURCE_INVALID' },
+    });
+    expect(serializedKv(kv)).not.toContain('RAW_ADMIN_SENTINEL');
+    expect(serializedKv(kv)).not.toContain('RAW_KNOWLEDGE_SENTINEL');
+  });
+
+  it('does not treat hidden reserved records as a source error', async () => {
+    const kv = new FakeKV();
+    await refreshRegistryOperationalState(env(kv), {
+      definitions: [],
+      now: () => 10_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'hidden-module',
+          show: 0,
+          body: 'RAW_KNOWLEDGE_SENTINEL',
+        },
+      ]),
+    });
+
+    expect(await loadRegistryHealth(kv.binding())).toMatchObject({
+      status: 'ok',
+      source: { status: 'ok' },
+    });
+  });
+
+  it('updates known safe modules while reporting an unknown neighbor', async () => {
+    const kv = new FakeKV();
+    const definitions = [definition('module-a')];
+    await refreshRegistryOperationalState(env(kv), {
+      definitions,
+      now: () => 10_000,
+      fetcher: sourceFetcher([
+        {
+          id: 1,
+          moduleId: 'module-a',
+          body: registryBody('module-a', {
+            value: 'known-safe',
+            secret: { source: 'knowledge', value: 'known-secret' },
+          }),
+        },
+        {
+          id: 2,
+          moduleId: 'unknown-module',
+          body: registryBody('unknown-module', {
+            value: 'unknown',
+            secret: { source: 'knowledge', value: 'unknown-secret' },
+          }),
+        },
+      ]),
+    });
+
+    expect(await loadRegistryHealth(kv.binding())).toMatchObject({
+      status: 'error',
+      source: { status: 'error', code: 'REGISTRY_SOURCE_INVALID' },
+      modules: [expect.objectContaining({ moduleId: 'module-a', status: 'ok' })],
+    });
+    await expect(
+      readRegistryModuleSnapshot(kv.binding(), definitions[0], 10_000)
+    ).resolves.toMatchObject({
+      status: 'available',
+      config: { value: 'known-safe' },
     });
   });
 });

@@ -241,6 +241,12 @@ export async function refreshRegistryOperationalState(
     definitions.map((definition) => definition.registryDefinition),
     { solutionSecretResolver: options.solutionSecretResolver }
   );
+  const knownModuleIds = new Set(
+    definitions.map((definition) => definition.registryDefinition.moduleId)
+  );
+  const staticSourceInvalid =
+    report.invalidReserved.length > 0 ||
+    report.modules.some((module) => !knownModuleIds.has(module.moduleId));
 
   const modules: RegistryModuleSnapshot[] = [];
   const healthModules: RegistryOperationalHealth['modules'] = [];
@@ -417,9 +423,11 @@ export async function refreshRegistryOperationalState(
   });
   const health: RegistryOperationalHealth = {
     schemaVersion: 1,
-    status: overallStatus(healthModules),
+    status: staticSourceInvalid ? 'error' : overallStatus(healthModules),
     checkedAt,
-    source: { status: 'ok' },
+    source: staticSourceInvalid
+      ? { status: 'error', code: 'REGISTRY_SOURCE_INVALID' }
+      : { status: 'ok' },
     modules: healthModules,
   };
 

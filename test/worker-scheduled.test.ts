@@ -123,7 +123,7 @@ describe('Worker fetch and scheduled boundaries', () => {
         })
       );
     vi.stubGlobal('fetch', fetcher);
-    const response = await app.fetch(
+    const response = await worker.fetch!(
       new Request('https://gateway.example/api/v1/subscription', {
         headers: {
           Authorization: 'Bearer opaque-user-auth',
@@ -133,7 +133,8 @@ describe('Worker fetch and scheduled boundaries', () => {
       {
         V2BOARD_BASE_URL: 'https://backend.example/api/v1/',
         V2BOARD_SUBSCRIBE_PATH: '/client/subscribe',
-      }
+      },
+      executionContext().context
     );
 
     expect(response.status).toBe(200);

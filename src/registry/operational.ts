@@ -39,6 +39,7 @@ const healthCodeSchema = z.enum([
   'REFERENCE_INVALID',
   'UNKNOWN_MODULE',
   'MODULE_ABSENT',
+  'REGISTRY_SOURCE_INVALID',
   'SNAPSHOT_PROJECTION_INVALID',
 ]);
 
@@ -245,6 +246,7 @@ async function moduleFingerprint(
   });
 }
 
+// Safe content correlation metadata only, not a MAC or freshness authority.
 async function snapshotFingerprint(
   snapshot: Omit<RegistryOperationalSnapshot, 'sourceFingerprint'>
 ): Promise<string> {
@@ -333,6 +335,12 @@ async function validateSnapshot(
       return null;
     }
     if (module.lkg) {
+      if (
+        module.lkg.sourceFetchedAt > module.lkg.validatedAt ||
+        module.lkg.validatedAt > parsed.data.generatedAt
+      ) {
+        return null;
+      }
       const config = definition.snapshotSchema.safeParse(module.lkg.config);
       if (!config.success) return null;
       try {
@@ -407,6 +415,9 @@ export function evaluateRegistryFreshness(
   now: number
 ): RegistryFreshnessEvaluation {
   validateFreshnessPolicy(policy);
+  if (validatedAt > now) {
+    return { usable: false, ageSeconds: 0 };
+  }
   const ageMilliseconds = Math.max(0, now - validatedAt);
   const maximumSeconds =
     policy.class === 'STALE_TOLERANT'
@@ -591,7 +602,9 @@ export async function createRegistryAlertState(
     ...(previous?.lastAlertAt === undefined
       ? {}
       : { lastAlertAt: previous.lastAlertAt }),
-    recoveryPending: Boolean(previouslyFailing && !failing),
+    recoveryPending: failing
+      ? false
+      : Boolean(previous?.recoveryPending || previouslyFailing),
   };
 }
 
