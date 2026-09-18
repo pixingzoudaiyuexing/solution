@@ -17,6 +17,7 @@
 | D-013 | APPROVED | 既有 `FRONTEND_ORIGINS` 保持 opaque secret，不读取、不替换、不迁移；新增 optional non-secret `FRONTEND_ORIGINS_EXTRA`。Effective frontend allowlist 是两者经同一严格 HTTP/HTTPS exact-origin parser 后的 Set union；wildcard、malformed、substring 与 suffix matching 均禁止。Wrangler 使用 `keep_vars` 保留远端 non-secret vars。将旧 secret 迁移为可审计 runtime config 属于后续 Runtime Config Hygiene，不在本任务执行。 |
 | D-014 | APPROVED | solution 是独立 public API Gateway，Frontend domain 可替换且不构成身份。CORS 只负责 browser interoperability：Public API 固定 `Access-Control-Allow-Origin: *`，不启用 credentialed CORS；认证继续使用显式 Bearer，Origin/Referer 不参与 identity、authorization 或 ownership。`FRONTEND_ORIGINS` / `FRONTEND_ORIGINS_EXTRA` 不再被 application runtime 消费，现有 Cloudflare bindings 可暂时 dormant，安全清理由后续 Runtime Config Hygiene 执行。Checkout 仅把经过严格 exact HTTPS 语法验证的 request Origin 作为 payment return-url protocol metadata 转发；Official V2Board 继续拥有 payment business logic。 |
 | D-015 | APPROVED | CF-03B 使用 V2Board visible Notice 作为 Dynamic Custom Pages 唯一 SSOT；exact lowercase `aureole:` 是 reserved control namespace。Solution request-locally 完整收集、分类和重分页，不 patch V2Board、不建立第二配置源，也绝不 server-side fetch Custom Page target。 |
+| D-016 | APPROVED | A1 Registry Kernel 以 Official V2Board Admin Knowledge 作为 internal raw source；Control Plane 只提供 code-owned Knowledge list/detail read，使用 deployment-owned auth_data 与 validated Admin prefix。Registry strict validation、stable IDs/references、exposure与secret primitives保持无状态，不新增 Public route、KV或 generic Admin proxy。 |
 
 ## D-005 Subscription access 实施约束
 
@@ -46,3 +47,14 @@
 - Custom Page ID 为 request-time `notice-<upstream id>`，title/content 只做 trim 和严格 HTTPS URL validation；不解析 HTML/Markdown、不提取第一条 URL、不持久化映射。
 - Target URL 永不成为 Solution outbound destination，不执行 fetch、HEAD、DNS probe、redirect follow、proxy、Authorization/token injection 或 cookie bridge。
 - Future Aureole consumer 将读取 authenticated `/api/v1/custom-pages`；Aureole migration、static source removal、dynamic/static merge 和 runtime fallback 不属于本 Solution task。
+
+## D-016 Registry Control Plane 与 Validation Kernel
+
+- Deployment secrets `V2BOARD_CONTROL_AUTH_DATA` 和 `V2BOARD_CONTROL_ADMIN_PREFIX` 只属于 internal bootstrap。Registry、Browser、query/body/header 和用户 credential 都不能选择其值、来源、Admin operation、path 或 Knowledge ID。
+- Control Plane 只允许 Official Admin Knowledge list 与由 list 内部选出的 active reserved detail read；ordinary Knowledge 与 hidden reserved records不触发 raw detail，且不存在 generic request/path/url surface 或 Admin mutation。
+- Reserved Registry identity 必须同时满足 category `__AUREOLE_REGISTRY__`、title `registry:<moduleId>`、`kind=aureole.registry`、body/title moduleId 一致与 supported schema version。Reserved-invalid 不解释为 ordinary Knowledge；ordinary category 的 Registry-like JSON 仍是 ordinary。
+- Envelope strict 拒绝 unknown top-level field、coercion和 future version。Validation 按 module fail closed；duplicate module/item ID、unknown references、cycles、exposure broadening和 unresolved secrets只使受影响/依赖 module失效，无关 valid module保留。
+- Stable ID 是最多 64 字符的 lowercase ASCII kebab-case。Reference resolution只使用 stable module/item IDs，不 fallback 到 label、URL、V2Board numeric ID、array index或 sort order。
+- Exposure maximum由代码持有：`public`、`authenticated`、`internal` 只能保持或收紧。DTO 必须从 explicit allowlist新建，禁止 raw serialization 后再 redact。
+- Provider secret source 显式支持 Knowledge plaintext 或 Solution logical allowlist ref；不允许 Registry 任意读取 env key。Knowledge plaintext 是已知 confidentiality risk，但 resolved value仍不得序列化、记录或进入错误。Control Plane bootstrap auth只允许 Solution deployment boundary，不是 Registry secret。
+- A1 是 source acquisition + validation kernel，不注册 Public Registry endpoint，不引入 KV/D1/DO/Cron/snapshot/health/alert，也不表示 A2 或任何 Registry consumer/module 已实现。

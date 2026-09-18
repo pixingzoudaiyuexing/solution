@@ -1530,12 +1530,14 @@ solution 不支持 V2Board multi-level commission distribution（多级分销）
 
 solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼容的 additive extension。CF-03B Dynamic Custom Pages 增加一个 authenticated API 后，本文件顶部矩阵包含 47 个真实 source routes。所有 Public route 都位于 `/api/v1`；不存在 `/api/v1/access` 或 `/r/v1/{credential}`。唯一 subscription content route 仍是 `GET /api/v1/access/subscription?token=...`；`POST /api/v1/subscription/entry-access` 只返回 V2Board 生成的 opaque credential URL，不代理其内容。
 
+A1 `SOL-REG-KERNEL-01` 只增加 internal Control Plane / Registry validation kernel，不增加或改变任何 Public Contract；真实 source route count 继续为 47。不存在 `/api/v1/registry`、`/api/v1/control-plane`、refresh/raw/maintenance 等隐藏 Public route，Browser request也不会触发 Admin Knowledge acquisition。
+
 v1 已实现范围包括 Authentication、Onboarding/Config、Account、Catalog、Orders、Billing/Checkout、Promotions、Wallet、Subscription、Tickets、Notices、Traffic、Referrals/Commission/Withdrawal 和 Gift Card Redemption。V2Board 继续拥有用户、订单、支付、wallet、subscription、ticket、notice、traffic、invite、commission、withdrawal 与 Gift Card 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 
 以下为明确且永久的 solution Non-goals：
 
 - **Telegram**：不提供 bind、unbind、Telegram login 或 Telegram Public API。V2Board 内部可能产生的管理员 Telegram notification side effect 不属于 solution Public Contract，也不是 solution dependency。
-- **Knowledge / 知识库**：不提供 list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。
+- **普通 User Knowledge / Help Center**：不提供 Public list、detail、content transformation，也不处理其中的 `subscribe_url`、`subscribeToken` 或 encoded subscription URL。A1 的 exact reserved Admin Knowledge 只属于 internal Registry source，不是 Public Knowledge Contract。
 - **Multi-level commission distribution**：不支持；部署必须保持 `commission_distribution_enable=0`。`pendingCommissionMinor` 保持 integer minor unit，不增加 fractional compatibility。
 
 Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 V2Board `newPeriod` / `resetSecurity` controller 命名不属于 solution v1 Public Contract。不存在这些功能的 placeholder route；请求应按未知 Public route 返回 404。

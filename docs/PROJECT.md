@@ -19,7 +19,9 @@ V1 CONTRACT BASELINE FROZEN
 
 CF-03B Dynamic Custom Pages 以向后兼容的 additive extension 新增 authenticated `/api/v1/custom-pages`；真实 source route tree 包含 47 个 `/api/v1` Public routes。V2Board visible Notice 是 Custom Page 唯一 SSOT；Solution request-locally 完整收集、分类、过滤并重分页，不保存第二配置源或 fetch target URL。已有 v1 Contract baseline 保持冻结；完整 METHOD、PATH、DTO、错误与分页契约以 `docs/API-CONTRACT.md` 为 SSOT。
 
-Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
+Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、knowledge、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
+
+A1 `SOL-REG-KERNEL-01` 增加 internal-only Control Plane 与 Registry validation primitives，不增加 Public API。Official Admin Knowledge 是 reserved Registry raw source；Solution 只通过 deployment-owned `V2BOARD_CONTROL_AUTH_DATA` 和 `V2BOARD_CONTROL_ADMIN_PREFIX` 执行 code-owned list/detail read。Registry Kernel 严格验证 identity/envelope/module schema、stable IDs/references、exposure、DTO allowlist与provider secrets，并保持 module-level fail closed。A1 不增加 KV/snapshot/scheduler，不让 Browser request触发 Admin fetch，也不修改 V2Board 或 Aureole。
 
 V2Board-first Business Ownership：官方 V2Board 已支持的业务规则、金额计算、资格、transaction、state mutation 和 callback 继续由 V2Board 持有；solution 只做 Public Contract、验证、安全过滤和 Adapter 映射。Coupon Application 只把 `promotionCode` 映射为 `coupon_code`，不预查、不计算折扣/价格/VIP/余额，也不保存 coupon state。
 
@@ -29,13 +31,15 @@ Phase 2W 为 onboarding requirements、current preferences 和 currency 提供�
 
 Wallet Balance Read 只把官方 `user/info.balance` 原样映射为 `balanceMinor`。Wallet Deposit 仅映射 V2Board 原生 `plan_id=0/period=deposit` Order Create；Gateway 不计算、合并、缓存或修改余额，不计算 bonus，也不持有 checkout、callback 或支付状态。Deposit、commission transfer、Gift Card、订单抵扣和 cancellation/refund 继续由 V2Board 持有。
 
-Telegram、Knowledge / 知识库和 multi-level commission distribution 是明确且永久的 Non-goals。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation 同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
+Telegram Public API、普通 User Knowledge / Help Center Public API 和 multi-level commission distribution 是当前明确 Non-goals。Reserved Admin Knowledge 只用于 internal Registry raw source，不改变普通 Knowledge 的 Public边界。多级分销部署必须保持 `commission_distribution_enable=0`。Commission Transfer 与 Withdrawal Request 都只映射官方 API；余额、资格、minimum、事务和 Ticket 创建由 V2Board 拥有。Subscription Rotation 的 token/UUID 与 Advance Period 的流量/有效期 mutation同样由 V2Board 生成、计算和保存；Gateway 不 pre-check、不计算周期、不 retry、不保存 mutation state。Gift Card 管理/创建/list/preview、Active Session、Quick Login、automatic payout、withdrawal admin，以及直接暴露 upstream `newPeriod` / `resetSecurity` 命名不属于 v1 Public Contract。
 
 ## 运行时配置
 - Public API CORS 固定使用 `Access-Control-Allow-Origin: *`，不输出 `Access-Control-Allow-Credentials`。Frontend domain 是可替换的 browser client location，不是 authentication / authorization identity；更换域名不要求修改 solution 配置或重新部署 solution。
 - 历史 Cloudflare bindings `FRONTEND_ORIGINS` 与 `FRONTEND_ORIGINS_EXTRA` 可暂时继续存在，但 application runtime 不再读取。它们属于 dormant bindings；后续 Runtime Config Hygiene 可在独立、可审计任务中安全清理，本任务不读取、替换或删除其值。
 - `V2BOARD_BASE_URL`: V2Board API v1 基础地址，必须使用 HTTPS，例如 `https://backend.example/api/v1/`；末尾缺少 `/` 时客户端会自动补齐。
 - `V2BOARD_SUBSCRIBE_PATH`: V2Board 上固定的 subscription route，例如 `/client/subscribe`。必须是根相对路径；不能包含 origin、query、fragment、反斜线、percent encoding 或 traversal。
+- `V2BOARD_CONTROL_AUTH_DATA`: internal Control Plane bootstrap credential；必须以 Solution deployment secret人工 provision。Solution 不保存 Admin password、不自动登录，也不允许 Registry选择此 credential。
+- `V2BOARD_CONTROL_ADMIN_PREFIX`: internal deployment-owned V2Board Admin secure prefix；必须使用安全 relative prefix，不能包含 origin、leading slash、backslash、query、fragment、percent encoding 或 traversal。Browser/Public input永远不能选择该值。
 
 当前冻结部署不使用 `V2BOARD_ACCESS_CLIENT_ID`、`V2BOARD_ACCESS_CLIENT_SECRET`、Cloudflare Access 或 Tunnel。Payment Provider 协议必须携带的 `notify_url` / callback hostname 由 V2Board 管理，solution 不代理、重写或持有 callback 和支付状态。
 

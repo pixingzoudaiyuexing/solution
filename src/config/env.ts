@@ -3,4 +3,6 @@ export interface Env {
   V2BOARD_SUBSCRIBE_PATH?: string;
   V2BOARD_ACCESS_CLIENT_ID?: string;
   V2BOARD_ACCESS_CLIENT_SECRET?: string;
+  V2BOARD_CONTROL_AUTH_DATA?: string;
+  V2BOARD_CONTROL_ADMIN_PREFIX?: string;
 }
