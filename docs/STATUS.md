@@ -26,31 +26,29 @@ A4: NOT STARTED / NOT AUTHORIZED
 
 Reviewed/current repository baseline before this reconciliation: `472635dbedb8efb23cb070ad827db970ddabf56f`. The docs-only reconciliation commit after A2 closure does not modify or re-review the A2 runtime/code anchor.
 
-## CF-03B Dynamic Custom Pages
+## Custom Pages Runtime
 
-- Source / SSOT: visible V2Board Notices; V2Board remains unmodified.
-- Reserved namespace: case-sensitive exact lowercase `aureole:`.
-- Valid modes: `aureole:iframe`, `aureole:external`.
-- Ordinary Notices hide every lowercase `aureole:*` control record, including invalid records.
-- Solution collects all upstream Notice pages, filters, and repaginates request-locally while remaining stateless.
-- Public authenticated contract: `GET /api/v1/custom-pages` returning only `id/title/url/mode`.
-- Custom Page target URLs are validated as HTTPS and are never fetched, probed, proxied, or given credentials by Solution.
+- Runtime source candidate: Reserved Knowledge Registry `custom-pages` A2 snapshot; V2Board remains unmodified.
+- Route: authenticated `GET /api/v1/custom-pages`, preserving only `id/title/url/mode`.
+- Request sequence: Bearer syntax gate -> Official V2Board `user/info` session validation -> Registry snapshot -> explicit DTO.
+- Registry unavailable after valid session returns empty items; no Notice fallback/merge and no target fetch/probe.
+- Ordinary Notice list/detail retain lowercase `aureole:*` reserved-row filtering; legacy Notice rows remain.
 
 ## Current Consumer Runtime
 
 当前 Aureole 已使用：
 
 ```text
-V2Board Notice -> Solution /api/v1/custom-pages
+Reserved Knowledge Registry -> Solution /api/v1/custom-pages
 ```
 
-Notice-backed CF-03B 是当前 transitional implementation baseline，不是最终项目 SSOT。最终已冻结方向为：
+Custom Pages Registry source migration 是 implementation candidate，等待 independent post-code review。legacy Notice rows不在本任务删除，Production cutover未执行。
 
 ```text
 Reserved Knowledge Registry -> Solution -> Aureole
 ```
 
-当前 Notice implementation 保持运行，直到 replacement 具备 implementation evidence、regression/security review、staging/Owner acceptance 与 explicit cleanup authorization。本阶段不定义 dynamic/static merge 或 runtime fallback。
+普通 Notice route 保持现有实现和 reserved-row filtering；Custom Pages route 不定义 Registry + Notice merge或 runtime fallback。
 
 ## A1 Registry Kernel Closure
 
@@ -86,3 +84,13 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Current Public route count is `48`; no generic Registry, raw, health, check or refresh route exists.
 - A3 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Gemini post-code review is `PASS` with `BLOCKER/HIGH/MEDIUM/LOW: 0 / 0 / 0 / 0`.
 - Production remains `NOT AUTHORIZED / NOT DEPLOYED`: Production KV namespace/binding and Cron are not provisioned/activated, Control Plane deployment secrets are not provisioned, and Live Admin Runtime is not verified. A4 remains `NOT STARTED / NOT AUTHORIZED`.
+
+## REG-M02 Custom Pages Registry Source Migration Candidate
+
+- Runtime/code anchor: `b01f7d1805ff35896968106899b92f29f86c91f7`.
+- Only REG-M02 `custom-pages` is added; REG-M07 and all other product modules remain unimplemented.
+- Module exposure is `authenticated`, schema version is `1`, and freshness is code-owned `STALE_TOLERANT` with max stale age `86400` seconds.
+- Strict Registry items allow only stable `id`, `title.default`, `mode`, `url` and `enabled`; enabled items persist in Registry order as flattened `{id,title,url,mode}` snapshot data.
+- `GET /api/v1/custom-pages` validates the real V2Board session through `user/info` before snapshot read. It does not impose subscription/purchase entitlement.
+- No KV/missing/corrupt/disabled/absent/stale state returns authenticated `{items:[]}`; no Notice fallback or merge occurs. Public route count remains `48`.
+- Candidate state: `IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT POST-CODE REVIEW`; it is not CLOSED, RE-FROZEN or Production Ready. Legacy Notice rows are NOT DELETED and Production cutover is NOT PERFORMED.
