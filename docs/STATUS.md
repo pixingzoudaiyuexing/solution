@@ -6,17 +6,19 @@
 Solution A1: PASS / COMPLETE / CLOSED / RE-FROZEN
 Reviewed A1 implementation anchor: 7331e68121d6a03aec83cb1d0cbc0ee23e1c9f52
 Gemini final review: PASS (BLOCKER: 0, HIGH: 0)
+A2: PASS / COMPLETE / CLOSED / RE-FROZEN
+Reviewed A2 runtime/code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
+Gemini A2 follow-up review: PASS (BLOCKER: 0, HIGH: 0)
 Public routes: 47
 Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
-A2: IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT REVIEW
-A2 implementation code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
-A2 Production KV binding / Cron: NOT PROVISIONED / NOT ACTIVATED
+A2 Production KV namespace / binding: NOT PROVISIONED
+A2 Production Cron: NOT ACTIVATED
 A3: NOT STARTED / NOT AUTHORIZED
 ```
 
-本文件后续的 docs-only reconciliation commit 不改变上述已审阅的 A1 implementation anchor，也不表示 A1 runtime/code 被重新审阅或修改。
+Reviewed/current repository baseline before this reconciliation: `472635dbedb8efb23cb070ad827db970ddabf56f`. The docs-only reconciliation commit after A2 closure does not modify or re-review the A2 runtime/code anchor.
 
 ## CF-03B Dynamic Custom Pages
 
@@ -54,7 +56,7 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - A1 已完成并 re-frozen；Gemini final review 为 PASS，BLOCKER 与 HIGH 均为 0。
 - Residual: `REG-KERNEL-003` 为 MEDIUM / NEEDS RUNTIME EVIDENCE；真实目标部署中 Admin Knowledge 的 `id/show` JSON serialization types 尚未 runtime verified。
 
-## A2 Registry Operational Foundation Candidate
+## A2 Registry Operational Foundation Closure
 
 - Exactly one logical code binding: `REGISTRY_KV`; no Production namespace ID or remote binding exists.
 - Fixed keys: `registry:snapshot:v1`, `registry:health:v1`, `registry:alert:v1`; snapshot schema version is `1`.
@@ -63,4 +65,7 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - `STALE_TOLERANT` and `FRESH_REQUIRED` are code-owned bounded policies evaluated from `validatedAt`; KV TTL is not a security boundary.
 - Worker default fetch delegates to the existing Hono app. Internal scheduled execution calls Registry refresh without adding a Public route; route count remains `47`.
 - Health/alert state is internal and redacted; no Telegram, webhook, live provider probe or product module is implemented.
-- Current state is pending mandatory Gemini post-code review. It is not COMPLETE, CLOSED or RE-FROZEN.
+- A2 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Gemini Follow-Up is `PASS` with `BLOCKER: 0` and `HIGH: 0`.
+- Residual: `REG-KERNEL-003` remains `MEDIUM / NEEDS RUNTIME EVIDENCE`; real target Admin Knowledge `id/show` JSON serialization types remain runtime-unverified.
+- Cloudflare KV eventual consistency is an accepted platform limitation. Snapshot, health and alert use separate KV writes and may temporarily show a cross-generation observability mismatch; this is an accepted LOW residual.
+- Production remains `NOT DEPLOYED`: KV namespace/binding and Cron are not provisioned/activated, Control Plane deployment secrets are not provisioned, and live Admin Runtime is not verified.
