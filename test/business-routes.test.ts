@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import app from '../src/index';
+import { app } from '../src/index';
 
 const env = {
   V2BOARD_BASE_URL: 'https://private.example/api/v1/',

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import app from '../src/index';
+import { app } from '../src/index';
 import { strictCors } from '../src/security/cors';
 
 const env = {
