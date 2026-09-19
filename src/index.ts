@@ -4,6 +4,7 @@ import { errorHandler } from './http/error-handler';
 import { strictCors } from './security/cors';
 import type { Env } from './config/env';
 import { refreshRegistryOperationalState } from './registry/refresh';
+import { subscriptionPublicRouter } from './routes/subscription-public';
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -12,6 +13,7 @@ app.use('*', strictCors);
 app.onError(errorHandler);
 
 app.route('/api/v1', v1Router);
+app.route('/', subscriptionPublicRouter);
 
 export function scheduled(
   _controller: ScheduledController,

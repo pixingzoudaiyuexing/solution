@@ -36,6 +36,8 @@
 | `POST /api/v1/subscription/entry-access` | Yes          | `user/order/fetch` + `user/getSubscribeForEntry` |
 | `POST /api/v1/subscription/rotate-access` | Yes         | `user/order/fetch` + `GET user/resetSecurity` |
 | `POST /api/v1/subscription/advance-period` | Yes        | `POST user/newPeriod`            |
+| `GET /api/v1/subscription/delivery-options` | Yes       | order eligibility + Registry snapshot |
+| `POST /api/v1/subscription/access-link` | Yes          | order eligibility + `user/getSubscribe` |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /api/v1/tickets`                  | Yes            | `user/ticket/fetch`             |
@@ -1532,6 +1534,10 @@ solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼�
 A1 `SOL-REG-KERNEL-01` 只增加 internal Control Plane / Registry validation kernel，不增加或改变任何 Public Contract；真实 source route count 继续为 47。不存在 `/api/v1/registry`、`/api/v1/control-plane`、refresh/raw/maintenance 等隐藏 Public route，Browser request也不会触发 Admin Knowledge acquisition。
 
 A3 `SOL-REG-KERNEL-03` 以 additive extension 增加一个 anonymous Runtime Settings read route，使当前 route count 为 48。它是显式七字段 DTO，不是 generic Registry Browser API；不存在 Public Registry raw、health、check、refresh 或 maintenance route。
+
+SOL-REG-M04-M06-01 implementation candidate 新增两个 authenticated `/api/v1` routes，使 route count 为 50，但保留所有 legacy CF-02 与 legacy access routes。`GET /subscription/delivery-options` 复用 existing previous-purchaser order eligibility，只公开 Registry `subscription-delivery` 中 selectable entry 的 `id/label`。`POST /subscription/access-link` 接受 strict `entryId`、optional literal `profileId=default` 与 `subscriptionInfo=show|hide`；读取 usable 24h Registry snapshot，调用 Official `user/getSubscribe`，要求 `data.token` 与 subscribe_url 中 exactly-one strict token 完全相等，再由 code-owned publicOrigin/pathPrefix生成完整 URL。OTP/time-derived mismatch、malformed/duplicate token或hidden-origin冲突均 fail closed，且不返回/记录credential。
+
+Public bearer access支持 `GET /{token}` 与 `GET /{prefix}/{token}`；prefix是非reserved lowercase stable segment，不依赖当前Registry存在。Root refresh只将path token送往deployment-owned hidden V2Board origin与fixed `V2BOARD_SUBSCRIBE_PATH`，不读取Registry、order、getSubscribe或CF-02。profile absent/default执行D-005 verbatim stream；info absent/show保留`subscription-userinfo`，info=hide只移除该header，body bytes及其他safe headers不变。M05/YAML transform不在本阶段实现。
 
 v1 已实现范围包括 Authentication、Onboarding/Config、Account、Catalog、Orders、Billing/Checkout、Promotions、Wallet、Subscription、Tickets、Notices、Traffic、Referrals/Commission/Withdrawal 和 Gift Card Redemption。V2Board 继续拥有用户、订单、支付、wallet、subscription、ticket、notice、traffic、invite、commission、withdrawal 与 Gift Card 的全部业务状态；Gateway 只提供稳定 Contract、验证、映射、字段过滤、错误规范化、受控 header forwarding 和 subscription streaming。
 

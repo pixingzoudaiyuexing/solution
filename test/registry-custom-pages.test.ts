@@ -30,6 +30,7 @@ describe('REG-M02 Custom Pages definition', () => {
     expect(registryOperationalDefinitions.map((item) => item.registryDefinition.moduleId)).toEqual([
       'runtime-settings',
       'custom-pages',
+      'subscription-delivery',
     ]);
   });
 

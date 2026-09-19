@@ -35,11 +35,11 @@ afterEach(() => {
 });
 
 describe('Worker fetch and scheduled boundaries', () => {
-  it('preserves default Worker fetch delegation and the 48-route contract', async () => {
+  it('preserves default Worker fetch delegation and the 50-route contract', async () => {
     expect(
       new Set(v1Router.routes.map((route) => `${route.method} ${route.path}`))
         .size
-    ).toBe(48);
+    ).toBe(50);
     const response = await worker.fetch!(
       new Request('https://gateway.example/api/v1/not-found'),
       {},

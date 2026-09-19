@@ -41,6 +41,9 @@ const subscriptionResponseSchema = z
       .strip(),
   })
   .strip();
+const normalSubscriptionResponseSchema = z.object({
+  data: z.object({ token: z.string(), subscribe_url: z.string().min(1).max(8192) }).strip(),
+}).strip();
 const rotationResponseSchema = z
   .object({ data: z.string().min(1).max(8192) })
   .strip();
@@ -216,7 +219,7 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
     return parsed.data.data.subscribe_url;
   }
 
-  private async accessEligible(authToken: string): Promise<boolean> {
+  async accessEligible(authToken: string): Promise<boolean> {
     const history = await this.requestJson('user/order/fetch', {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: authToken },
@@ -233,9 +236,25 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
     );
   }
 
+  async normalSubscriptionToken(authToken: string): Promise<string> {
+    const { response, payload } = await this.requestJson('user/getSubscribe', {
+      method: 'GET', headers: { Accept: 'application/json', Authorization: authToken },
+    });
+    this.assertAuthorizedResponse(response);
+    const parsed = normalSubscriptionResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new V2BoardSubscriptionEntryUnavailableError();
+    try {
+      const direct = validateSubscriptionToken(parsed.data.data.token);
+      const fromUrl = extractSubscriptionToken(parsed.data.data.subscribe_url);
+      if (direct !== fromUrl) throw new Error();
+      return direct;
+    } catch { throw new V2BoardSubscriptionEntryUnavailableError(); }
+  }
+
   async subscriptionContent(
     token: string,
-    trustedUserAgent?: string
+    trustedUserAgent?: string,
+    subscriptionInfo: 'show' | 'hide' = 'show'
   ): Promise<Response> {
     const subscribePath = normalizeV2BoardSubscribePath(this.subscribePath);
     const query = new URLSearchParams({
@@ -262,7 +281,7 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
     const headers = new Headers();
     for (const name of SUBSCRIPTION_RESPONSE_HEADERS) {
       const value = response.headers.get(name);
-      if (value !== null) {
+      if (value !== null && !(subscriptionInfo === 'hide' && name === 'subscription-userinfo')) {
         headers.set(name, value);
       }
     }

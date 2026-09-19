@@ -84,3 +84,10 @@ export interface SubscriptionOverviewSuccessResponse {
   data: SubscriptionOverview;
   requestId: string;
 }
+
+export interface SubscriptionDeliveryOptions {
+  defaultEntryId: string | null;
+  entries: Array<{ id: string; label: string }>;
+}
+export interface SubscriptionDeliveryOptionsSuccessResponse { ok: true; data: SubscriptionDeliveryOptions; requestId: string; }
+export interface SubscriptionAccessLinkSuccessResponse { ok: true; data: { accessUrl: string }; requestId: string; }

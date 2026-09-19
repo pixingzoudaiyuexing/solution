@@ -19,6 +19,8 @@ import type {
   SubscriptionEntryAccessSuccessResponse,
   SubscriptionOverviewSuccessResponse,
   SubscriptionPeriodAdvanceSuccessResponse,
+  SubscriptionDeliveryOptionsSuccessResponse,
+  SubscriptionAccessLinkSuccessResponse,
 } from '../../contract/v1/subscription';
 import { GatewayError } from '../../contract/error';
 import { requestId } from '../../http/request-id';
@@ -31,6 +33,16 @@ import {
   validateSubscriptionToken,
 } from '../../security/subscription';
 import { validateTrustedUserAgent } from '../../security/user-agent';
+import { registryOperationalDefinitions } from '../../registry/definitions';
+import {
+  isSubscriptionDeliverySafeForDeployment,
+  subscriptionDeliveryOperationalDefinition,
+} from '../../registry/modules/subscription-delivery';
+import { readRegistryModuleSnapshot } from '../../registry/operational';
+import {
+  V2BoardSubscriptionAccessUnavailableError,
+  V2BoardSubscriptionEntryUnavailableError,
+} from '../../adapters/v2board/errors';
 
 const subscriptionRouter = new Hono<GatewayContext>();
 const subscriptionAccessRouter = new Hono<GatewayContext>();
@@ -43,6 +55,11 @@ const subscriptionEntryAccessRequestSchema = z
       .refine((value) => value.trim().length > 0),
   })
   .strict();
+const accessLinkRequestSchema = z.object({
+  entryId: z.string().regex(/^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/),
+  profileId: z.literal('default').optional().default('default'),
+  subscriptionInfo: z.enum(['show', 'hide']).optional().default('show'),
+}).strict();
 
 function adapter(env: Env): V2BoardSubscriptionAdapter {
   return new V2BoardSubscriptionAdapter(
@@ -138,6 +155,79 @@ subscriptionRouter.post('/entry-access', requireAuthorization, async (c) => {
     ok: true,
     data: { accessUrl },
     requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.get('/delivery-options', requireAuthorization, async (c) => {
+  const service = adapter(c.env);
+  if (!(await service.accessEligible(c.get('authToken')))) {
+    throw new V2BoardSubscriptionAccessUnavailableError();
+  }
+  let data: SubscriptionDeliveryOptionsSuccessResponse['data'] = {
+    defaultEntryId: null,
+    entries: [],
+  };
+  if (c.env.REGISTRY_KV && c.env.V2BOARD_BASE_URL) {
+    const result = await readRegistryModuleSnapshot(
+      c.env.REGISTRY_KV,
+      subscriptionDeliveryOperationalDefinition,
+      Date.now(),
+      registryOperationalDefinitions
+    );
+    if (
+      result.status === 'available' &&
+      isSubscriptionDeliverySafeForDeployment(result.config, c.env.V2BOARD_BASE_URL)
+    ) {
+      const entries = result.config.entries
+        .filter((entry) => entry.enabled && entry.selectable)
+        .map((entry) => ({ id: entry.id, label: entry.label.default }));
+      if (entries.length > 0) {
+        data = { defaultEntryId: result.config.defaultEntryId, entries };
+      }
+    }
+  }
+  const response: SubscriptionDeliveryOptionsSuccessResponse = {
+    ok: true, data, requestId: requestId(c),
+  };
+  c.header('Cache-Control', 'no-store');
+  return c.json(response);
+});
+
+subscriptionRouter.post('/access-link', requireAuthorization, async (c) => {
+  let body: unknown;
+  try { body = await c.req.json(); }
+  catch { throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request'); }
+  const parsed = accessLinkRequestSchema.safeParse(body);
+  if (!parsed.success) throw new GatewayError(400, 'VALIDATION_ERROR', 'Invalid request');
+  const service = adapter(c.env);
+  if (!(await service.accessEligible(c.get('authToken')))) {
+    throw new V2BoardSubscriptionAccessUnavailableError();
+  }
+  if (!c.env.REGISTRY_KV || !c.env.V2BOARD_BASE_URL) {
+    throw new V2BoardSubscriptionEntryUnavailableError();
+  }
+  const result = await readRegistryModuleSnapshot(
+    c.env.REGISTRY_KV,
+    subscriptionDeliveryOperationalDefinition,
+    Date.now(),
+    registryOperationalDefinitions
+  );
+  if (
+    result.status !== 'available' ||
+    !isSubscriptionDeliverySafeForDeployment(result.config, c.env.V2BOARD_BASE_URL)
+  ) throw new V2BoardSubscriptionEntryUnavailableError();
+  const entry = result.config.entries.find(
+    (candidate) => candidate.id === parsed.data.entryId && candidate.enabled && candidate.selectable
+  );
+  if (!entry) throw new V2BoardSubscriptionEntryUnavailableError();
+  const token = await service.normalSubscriptionToken(c.get('authToken'));
+  const url = new URL(entry.publicOrigin);
+  url.pathname = entry.pathPrefix ? `/${entry.pathPrefix}/${token}` : `/${token}`;
+  if (parsed.data.subscriptionInfo === 'hide') url.searchParams.set('info', 'hide');
+  const response: SubscriptionAccessLinkSuccessResponse = {
+    ok: true, data: { accessUrl: url.toString() }, requestId: requestId(c),
   };
   c.header('Cache-Control', 'no-store');
   return c.json(response);
