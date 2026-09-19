@@ -38,4 +38,35 @@ describe('public root subscription access', () => {
     expect(new Uint8Array(await show.arrayBuffer())).toEqual(new Uint8Array(await hide.arrayBuffer()));
     expect(JSON.stringify(error.mock.calls)).not.toContain(TOKEN);
   });
+
+  it.each([
+    ['rejected', async () => new Response('private', { status: 403 })],
+    ['server error', async () => new Response('private', { status: 500 })],
+    ['timeout', async () => { throw new DOMException('private timeout', 'TimeoutError'); }],
+  ])('keeps token paths and credentials out of logs on %s', async (_case, behavior) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(behavior));
+    const rawUrl = `https://gateway.example/${TOKEN}?info=hide`;
+    const response = await worker.fetch!(new Request(rawUrl, { headers: { Referer: `https://ref.example/${TOKEN}` } }), env, ctx);
+    expect([404, 502, 504]).toContain(response.status);
+    const publicBody = await response.text();
+    expect(publicBody).toBe('subscription_unavailable');
+    const output = JSON.stringify([...log.mock.calls, ...error.mock.calls]);
+    for (const forbidden of [TOKEN, rawUrl, `/${TOKEN}`, `https://ref.example/${TOKEN}`]) {
+      expect(output).not.toContain(forbidden);
+      expect(publicBody).not.toContain(forbidden);
+    }
+  });
+
+  it('does not log malformed token-bearing request paths', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher);
+    const path = '/MALFORMED.TOKEN';
+    const response = await worker.fetch!(new Request(`https://gateway.example${path}`), env, ctx);
+    expect(response.status).toBe(400);
+    expect(JSON.stringify([...log.mock.calls, ...error.mock.calls])).not.toContain(path);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });

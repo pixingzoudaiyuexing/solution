@@ -10,8 +10,26 @@ export const RESERVED_SUBSCRIPTION_PREFIXES = new Set(['api', 'cdn-cgi']);
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const LABEL_BAD = /[<>\u0000-\u001f\u007f-\u009f]/;
 
+export function normalizeSubscriptionHostname(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+}
+
+function ipv6Words(host: string): number[] | null {
+  if (!host.includes(':')) return null;
+  const sides = host.split('::');
+  if (sides.length > 2) return null;
+  const left = sides[0] ? sides[0].split(':') : [];
+  const right = sides[1] ? sides[1].split(':') : [];
+  if (sides.length === 1 && left.length !== 8) return null;
+  const missing = 8 - left.length - right.length;
+  if (missing < (sides.length === 2 ? 1 : 0)) return null;
+  const raw = [...left, ...Array(missing).fill('0'), ...right];
+  if (raw.length !== 8 || raw.some((word) => !/^[0-9a-f]{1,4}$/i.test(word))) return null;
+  return raw.map((word) => Number.parseInt(word, 16));
+}
+
 function unsafeHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  const host = normalizeSubscriptionHostname(hostname);
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
   const v4 = host.split('.');
   if (v4.length === 4 && v4.every((part) => /^\d+$/.test(part))) {
@@ -23,9 +41,15 @@ function unsafeHost(hostname: string): boolean {
       (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
       (a === 203 && b === 0 && c === 113) || a >= 224;
   }
-  if (host.includes(':')) {
-    return host === '::1' || host === '::' || host.startsWith('fc') || host.startsWith('fd') ||
-      /^fe[89ab]/.test(host) || host.startsWith('ff') || host.startsWith('2001:db8:');
+  const words = ipv6Words(host);
+  if (words) {
+    const [a, b, c, d, e, f, g, h] = words;
+    const unspecified = words.every((word) => word === 0);
+    const loopback = a === 0 && b === 0 && c === 0 && d === 0 && e === 0 && f === 0 && g === 0 && h === 1;
+    const mapped = a === 0 && b === 0 && c === 0 && d === 0 && e === 0 && f === 0xffff;
+    return unspecified || loopback || mapped || (a & 0xfe00) === 0xfc00 ||
+      (a & 0xffc0) === 0xfe80 || (a & 0xffc0) === 0xfec0 ||
+      (a & 0xff00) === 0xff00 || (a === 0x2001 && b === 0x0db8);
   }
   return false;
 }
@@ -108,7 +132,9 @@ export function isSubscriptionDeliverySafeForDeployment(
   hiddenBaseUrl: string
 ): boolean {
   try {
-    const hidden = new URL(hiddenBaseUrl);
-    return config.entries.every((entry) => new URL(entry.publicOrigin).hostname.toLowerCase() !== hidden.hostname.toLowerCase());
+    const hidden = normalizeSubscriptionHostname(new URL(hiddenBaseUrl).hostname);
+    return config.entries.every(
+      (entry) => normalizeSubscriptionHostname(new URL(entry.publicOrigin).hostname) !== hidden
+    );
   } catch { return false; }
 }

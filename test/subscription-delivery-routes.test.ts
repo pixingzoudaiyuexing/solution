@@ -4,11 +4,13 @@ import { registryOperationalDefinitions } from '../src/registry/definitions';
 import { createRegistryModuleLkg, createRegistryOperationalSnapshot, persistRegistryOperationalSnapshot } from '../src/registry/operational';
 import { RegistryValidationState } from '../src/registry/kernel';
 import { FakeKV } from './helpers/fake-kv';
+import { subscriptionDeliveryConfigSchema } from '../src/registry/modules/subscription-delivery';
 
 const TOKEN = 'SYNTHETIC_TOKEN_DO_NOT_LOG_123';
 async function kvWith(origin = 'https://sub.example.com', prefix = ''): Promise<FakeKV> {
   const kv = new FakeKV();
-  const lkg = await createRegistryModuleLkg({ moduleId: 'subscription-delivery', validatedAt: Date.now(), sourceFetchedAt: Date.now(), exposure: 'authenticated', config: { defaultEntryId: 'primary', entries: [{ id: 'primary', label: { default: 'Subscription' }, enabled: true, selectable: true, publicOrigin: origin, pathPrefix: prefix }] } });
+  const config = subscriptionDeliveryConfigSchema.parse({ defaultEntryId: 'primary', entries: [{ id: 'primary', label: { default: 'Subscription' }, enabled: true, selectable: true, publicOrigin: origin, pathPrefix: prefix }] });
+  const lkg = await createRegistryModuleLkg({ moduleId: 'subscription-delivery', validatedAt: Date.now(), sourceFetchedAt: Date.now(), exposure: 'authenticated', config });
   const snapshot = await createRegistryOperationalSnapshot({ generatedAt: Date.now(), modules: [{ moduleId: 'subscription-delivery', latest: { state: RegistryValidationState.VALID_ENABLED, enabled: true }, lkg }] });
   await persistRegistryOperationalSnapshot(kv.binding(), snapshot, registryOperationalDefinitions);
   return kv;
@@ -73,6 +75,21 @@ describe('subscription delivery APIs', () => {
     expect(JSON.stringify(error.mock.calls)).not.toContain(TOKEN);
   });
 
+  it.each(['https://hidden.example', 'https://hidden.example/', 'https://hidden.example.', 'https://HIDDEN.EXAMPLE'])('fails both consumers closed for hidden equivalent %s', async (origin) => {
+    const kv = await kvWith(origin);
+    let fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(eligible)); vi.stubGlobal('fetch', fetcher);
+    let response = await app.request('/api/v1/subscription/delivery-options', { headers: { Authorization: 'Bearer user-token' } }, env(kv));
+    expect(await response.json()).toMatchObject({ data: { defaultEntryId: null, entries: [] } });
+    expect(fetcher).toHaveBeenCalledOnce();
+
+    fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(eligible)); vi.stubGlobal('fetch', fetcher);
+    response = await app.request('/api/v1/subscription/access-link', { method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId: 'primary' }) }, env(kv));
+    expect(response.status).toBe(422);
+    expect(await response.text()).not.toContain('hidden.example');
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0][0])).toContain('/user/order/fetch');
+  });
+
   it.each([
     ['malformed direct token', { data: { token: 'bad.token', subscribe_url: `https://hidden.example/x?token=${TOKEN}` } }],
     ['malformed URL', { data: { token: TOKEN, subscribe_url: 'not-a-url' } }],
@@ -88,5 +105,18 @@ describe('subscription delivery APIs', () => {
     expect(response.status).toBe(422);
     expect(await response.text()).not.toContain(TOKEN);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['malformed JSON', '{'],
+    ['unknown field', JSON.stringify({ entryId: 'primary', unknown: true })],
+    ['invalid entry id', JSON.stringify({ entryId: 'Bad_ID' })],
+    ['non-default profile', JSON.stringify({ entryId: 'primary', profileId: 'meta' })],
+    ['invalid info', JSON.stringify({ entryId: 'primary', subscriptionInfo: 'other' })],
+  ])('rejects request contract %s before upstream', async (_case, body) => {
+    const fetcher = vi.fn<typeof fetch>(); vi.stubGlobal('fetch', fetcher);
+    const response = await app.request('/api/v1/subscription/access-link', { method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' }, body }, env());
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
