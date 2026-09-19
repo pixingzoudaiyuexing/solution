@@ -97,3 +97,13 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - No KV/missing/corrupt/disabled/absent/stale state returns authenticated `{items:[]}`; no Notice fallback or merge occurs. Public route count remains `48`.
 - Custom Pages runtime authority is the Reserved Knowledge Registry `custom-pages` snapshot after real `user/info` session validation; there is no Notice fallback or Registry+Notice merge. Legacy Notice rows are NOT DELETED and Production cutover is NOT PERFORMED.
 - Production remains `NOT AUTHORIZED / NOT DEPLOYED`; next Registry module is NOT AUTHORIZED.
+
+## REG-M04/M06 Subscription Delivery Foundation Candidate
+
+- Runtime/code anchor: `96bfcb37ffa02589ee2566399a0f19816ac999b6`.
+- `subscription-delivery` is authenticated, schema v1, code-owned `STALE_TOLERANT` with 86400-second bound; registered modules are runtime-settings, custom-pages and subscription-delivery only.
+- New authenticated APIs are `GET /api/v1/subscription/delivery-options` and `POST /api/v1/subscription/access-link`; `/api/v1` route count is `50`.
+- New link generation preserves previous-purchaser eligibility and requires exact Official `data.token` / subscribe_url token equality; hidden-origin conflicts and unusable Registry state fail closed without credential disclosure.
+- Root `/{token}` and `/{prefix}/{token}` refresh is Registry-independent and streams through the fixed hidden origin/path. `info=hide` removes only `subscription-userinfo`; M05/YAML transformation is NOT IMPLEMENTED.
+- Legacy CF-02 entries/entry-access, legacy access route, overview, rotate and advance remain unchanged. Aureole/V2Board/Production are unchanged.
+- State: `IMPLEMENTATION CANDIDATE / PENDING INDEPENDENT POST-CODE REVIEW`; not CLOSED, RE-FROZEN or Production Ready.
