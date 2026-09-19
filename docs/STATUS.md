@@ -100,7 +100,7 @@ Reserved Knowledge Registry -> Solution -> Aureole
 
 ## REG-M04/M06 Subscription Delivery Foundation Candidate
 
-- Runtime/code anchor: `96bfcb37ffa02589ee2566399a0f19816ac999b6`.
+- Runtime/code anchor: `92a9a432b46707b011c3456018fc15d836277ab1`.
 - `subscription-delivery` is authenticated, schema v1, code-owned `STALE_TOLERANT` with 86400-second bound; registered modules are runtime-settings, custom-pages and subscription-delivery only.
 - New authenticated APIs are `GET /api/v1/subscription/delivery-options` and `POST /api/v1/subscription/access-link`; `/api/v1` route count is `50`.
 - New link generation preserves previous-purchaser eligibility and requires exact Official `data.token` / subscribe_url token equality; hidden-origin conflicts and unusable Registry state fail closed without credential disclosure.
