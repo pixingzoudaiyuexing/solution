@@ -17,7 +17,9 @@ async function kvWith(origin = 'https://sub.example.com', prefix = ''): Promise<
 }
 const env = (kv?: FakeKV) => ({ V2BOARD_BASE_URL: 'https://hidden.example/api/v1/', V2BOARD_SUBSCRIBE_PATH: '/client/subscribe', ...(kv ? { REGISTRY_KV: kv.binding() } : {}) });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-const eligible = { data: [{ plan_id: 1, status: 3 }] };
+const eligible = {
+  data: { banned: 0, transfer_enable: 1024, expired_at: 253_402_300_799 },
+};
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -33,7 +35,7 @@ describe('subscription delivery APIs', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(eligible)); vi.stubGlobal('fetch', fetcher);
     const response = await app.request('/api/v1/subscription/delivery-options', { headers: { Authorization: 'Bearer user-token', 'cf-ray': 'rid' } }, env(kv));
     expect(await response.json()).toEqual({ ok: true, data: { defaultEntryId: 'primary', entries: [{ id: 'primary', label: 'Subscription' }] }, requestId: 'rid' });
-    expect(String(fetcher.mock.calls[0][0])).toContain('/user/order/fetch');
+    expect(String(fetcher.mock.calls[0][0])).toContain('/user/info');
   });
 
   it('returns empty options for eligible user when Registry unavailable', async () => {
@@ -50,6 +52,54 @@ describe('subscription delivery APIs', () => {
   });
 
   it.each([
+    ['/api/v1/subscription/delivery-options', undefined],
+    [
+      '/api/v1/subscription/access-link',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryId: 'primary' }),
+      },
+    ],
+  ])('returns explicit unavailability for expired entitlement on %s', async (path, init) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      json({ data: { banned: 0, transfer_enable: 1024, expired_at: 1 } })
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', 'Bearer user-token');
+
+    const response = await app.request(path, { ...init, headers }, env(await kvWith()));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'SUBSCRIPTION_ACCESS_UNAVAILABLE' },
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0][0])).toContain('/user/info');
+  });
+
+  it.each([
+    [json({ data: { banned: 0, expired_at: null } }), 502, 'UPSTREAM_ERROR'],
+    [new DOMException('private timeout', 'TimeoutError'), 504, 'UPSTREAM_TIMEOUT'],
+  ])('keeps unknown entitlement distinct from ineligibility', async (outcome, status, code) => {
+    const fetcher = vi.fn<typeof fetch>();
+    if (outcome instanceof Error) fetcher.mockRejectedValue(outcome);
+    else fetcher.mockResolvedValue(outcome);
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await app.request(
+      '/api/v1/subscription/delivery-options',
+      { headers: { Authorization: 'Bearer user-token' } },
+      env(await kvWith())
+    );
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ error: { code } });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     ['https://sub.example.com', '', 'show', `https://sub.example.com/${TOKEN}`],
     ['https://sub.example.com', '', 'hide', `https://sub.example.com/${TOKEN}?info=hide`],
     ['https://sub.example.com', 'zzz', 'show', `https://sub.example.com/zzz/${TOKEN}`],
@@ -59,7 +109,7 @@ describe('subscription delivery APIs', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(json(eligible)).mockResolvedValueOnce(json({ data: { token: TOKEN, subscribe_url: `https://hidden.example/client/subscribe?token=${TOKEN}` } })); vi.stubGlobal('fetch', fetcher);
     const response = await app.request('/api/v1/subscription/access-link', { method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId: 'primary', subscriptionInfo: info }) }, env(kv));
     expect(await response.json()).toMatchObject({ data: { accessUrl: expected } });
-    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://hidden.example/api/v1/user/order/fetch', 'https://hidden.example/api/v1/user/getSubscribe']);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://hidden.example/api/v1/user/info', 'https://hidden.example/api/v1/user/getSubscribe']);
   });
 
   it('fails closed on token mismatch and hidden-origin conflict without leaking credentials', async () => {
@@ -87,7 +137,7 @@ describe('subscription delivery APIs', () => {
     expect(response.status).toBe(422);
     expect(await response.text()).not.toContain('hidden.example');
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(String(fetcher.mock.calls[0][0])).toContain('/user/order/fetch');
+    expect(String(fetcher.mock.calls[0][0])).toContain('/user/info');
   });
 
   it.each([
@@ -118,5 +168,45 @@ describe('subscription delivery APIs', () => {
     const response = await app.request('/api/v1/subscription/access-link', { method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' }, body }, env());
     expect(response.status).toBe(400);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rechecks current entitlement when access-link follows delivery-options', async () => {
+    const kv = await kvWith();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(eligible))
+      .mockResolvedValueOnce(
+        json({ data: { banned: 0, transfer_enable: 1024, expired_at: 1 } })
+      );
+    vi.stubGlobal('fetch', fetcher);
+
+    const options = await app.request(
+      '/api/v1/subscription/delivery-options',
+      { headers: { Authorization: 'Bearer user-token' } },
+      env(kv)
+    );
+    expect(options.status).toBe(200);
+
+    const access = await app.request(
+      '/api/v1/subscription/access-link',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer user-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ entryId: 'primary' }),
+      },
+      env(kv)
+    );
+    expect(access.status).toBe(409);
+    expect(await access.json()).toMatchObject({
+      error: { code: 'SUBSCRIPTION_ACCESS_UNAVAILABLE' },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://hidden.example/api/v1/user/info',
+      'https://hidden.example/api/v1/user/info',
+    ]);
   });
 });

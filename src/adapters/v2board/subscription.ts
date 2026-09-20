@@ -15,23 +15,28 @@ import {
   V2BoardUpstreamError,
 } from './errors';
 
-const qualifyingStatusSchema = z.union([
-  z.literal(0),
-  z.literal(1),
-  z.literal(2),
-  z.literal(3),
-  z.literal(4),
-]);
-const orderHistorySchema = z
+const entitlementBannedSchema = z
+  .union([z.boolean(), z.literal(0), z.literal(1)])
+  .transform((value) => value === true || value === 1);
+const entitlementTimestampSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(253_402_300_799);
+const entitlementCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+const subscriptionEntitlementSchema = z
   .object({
-    data: z.array(
-      z
-        .object({
-          plan_id: z.number().int().nonnegative().max(2_147_483_647),
-          status: qualifyingStatusSchema,
-        })
-        .strip()
-    ),
+    data: z
+      .object({
+        banned: entitlementBannedSchema,
+        transfer_enable: entitlementCountSchema,
+        expired_at: entitlementTimestampSchema.nullable(),
+      })
+      .strip(),
   })
   .strip();
 const subscriptionResponseSchema = z
@@ -77,7 +82,6 @@ const subscriptionEntryUnavailableResponseSchema = z
 const errorResponseSchema = z
   .object({ message: z.string().optional(), error: z.string().optional() })
   .strip();
-const QUALIFYING_ORDER_STATUSES = new Set([1, 3, 4]);
 const ROTATION_FAILED_MESSAGES = new Set(['reset failed', '重置失败']);
 const SUBSCRIPTION_RESPONSE_HEADERS = [
   'content-type',
@@ -220,19 +224,22 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
   }
 
   async accessEligible(authToken: string): Promise<boolean> {
-    const history = await this.requestJson('user/order/fetch', {
+    const entitlement = await this.requestJson('user/info', {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: authToken },
     });
-    this.assertAuthorizedResponse(history.response);
+    this.assertAuthorizedResponse(entitlement.response);
 
-    const parsedHistory = orderHistorySchema.safeParse(history.payload);
-    if (!parsedHistory.success) {
+    const parsed = subscriptionEntitlementSchema.safeParse(entitlement.payload);
+    if (!parsed.success) {
       throw new V2BoardUpstreamError();
     }
-    return parsedHistory.data.data.some(
-      (order) =>
-        order.plan_id > 0 && QUALIFYING_ORDER_STATUSES.has(order.status)
+    const data = parsed.data.data;
+    return (
+      !data.banned &&
+      data.transfer_enable > 0 &&
+      (data.expired_at === null ||
+        data.expired_at > Math.floor(Date.now() / 1000))
     );
   }
 

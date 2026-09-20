@@ -30,14 +30,14 @@
 | `POST /api/v1/orders/{id}/cancel`      | Yes            | `user/order/cancel`             |
 | `GET /api/v1/billing/methods`          | Yes            | `user/order/getPaymentMethod`   |
 | `POST /api/v1/promotions/validate`     | Yes            | `user/coupon/check`             |
-| `GET /api/v1/subscription`             | Yes            | `user/order/fetch` + `user/getSubscribe` |
+| `GET /api/v1/subscription`             | Yes            | `user/info` + `user/getSubscribe` |
 | `GET /api/v1/subscription/overview`    | Yes            | `user/getSubscribe`              |
-| `GET /api/v1/subscription/entries`     | Yes            | `user/order/fetch` + `user/getSubscribeEntries` |
-| `POST /api/v1/subscription/entry-access` | Yes          | `user/order/fetch` + `user/getSubscribeForEntry` |
-| `POST /api/v1/subscription/rotate-access` | Yes         | `user/order/fetch` + `GET user/resetSecurity` |
+| `GET /api/v1/subscription/entries`     | Yes            | `user/info` + `user/getSubscribeEntries` |
+| `POST /api/v1/subscription/entry-access` | Yes          | `user/info` + `user/getSubscribeForEntry` |
+| `POST /api/v1/subscription/rotate-access` | Yes         | `user/info` + `GET user/resetSecurity` |
 | `POST /api/v1/subscription/advance-period` | Yes        | `POST user/newPeriod`            |
-| `GET /api/v1/subscription/delivery-options` | Yes       | order eligibility + Registry snapshot |
-| `POST /api/v1/subscription/access-link` | Yes          | order eligibility + `user/getSubscribe` |
+| `GET /api/v1/subscription/delivery-options` | Yes       | current V2Board entitlement + Registry snapshot |
+| `POST /api/v1/subscription/access-link` | Yes          | current V2Board entitlement + `user/getSubscribe` |
 | `GET /api/v1/access/subscription`      | URL credential | configured subscription route   |
 | `GET /api/v1/resources`                | Yes            | `user/server/fetch`             |
 | `GET /api/v1/tickets`                  | Yes            | `user/ticket/fetch`             |
@@ -551,7 +551,7 @@ GET /api/v1/subscription
 Authorization: Bearer <opaque-token>
 ```
 
-从未成功购买订阅、只有 pending/cancelled 订单、或只有 `plan_id=0` 充值订单时：
+V2Board `user/info` 明确表示账号 banned、`transfer_enable=0` 或 `expired_at` 已到期时：
 
 ```json
 {
@@ -564,9 +564,9 @@ Authorization: Bearer <opaque-token>
 }
 ```
 
-Gateway 此时不会调用 V2Board `user/getSubscribe`，避免无资格用户触发 subscription credential 生成。
+Gateway 此时不会调用 V2Board `user/getSubscribe`，避免无资格用户读取 subscription credential。
 
-V2Board 订单历史中存在 `plan_id>0` 且状态为 paid/processing、completed 或 adjusted 的订阅订单时，用户属于 previous purchaser：
+V2Board `user/info` 表示账号未 banned、`transfer_enable>0`，且 `expired_at` 为未来时间或 `null` 时，用户具有当前订阅资格。该判定与 Official `UserService::isAvailable()` 一致，不依赖历史订单；因此 V2Board 正式配置或迁移得到的当前有效订阅不会仅因缺少普通历史订单而被拒绝：
 
 ```json
 {
@@ -579,7 +579,7 @@ V2Board 订单历史中存在 `plan_id>0` 且状态为 paid/processing、complet
 }
 ```
 
-`accessUrl` 使用经过校验的当前 solution Gateway HTTPS origin 构建，不使用 upstream origin、`Host` 或 `X-Forwarded-*`。Gateway 从 V2Board `subscribe_url` 中严格提取 V2Board 生成的 token，但不返回 raw upstream URL、raw user token、UUID 或订单内部字段。previous purchaser 即使当前订阅已过期仍可得到 access URL；实际 subscription 是否可用继续由 V2Board 决定。
+`accessUrl` 使用经过校验的当前 solution Gateway HTTPS origin 构建，不使用 upstream origin、`Host` 或 `X-Forwarded-*`。资格通过后，Gateway 从 V2Board `subscribe_url` 中严格提取 V2Board 生成的 token，但不返回 raw upstream URL、raw user token、UUID 或内部字段。字段缺失、malformed response 或 upstream failure 不解释为“明确无资格”，按现有 `UPSTREAM_ERROR` / `UPSTREAM_TIMEOUT` fail closed。
 
 ### CF-02 Multiple Subscription Entries
 
@@ -590,7 +590,7 @@ VB-CF02-001: GET user/getSubscribeEntries
 VB-CF02-002: POST user/getSubscribeForEntry
 ```
 
-两个 Public API 都复用 CF-01 previous-purchaser eligibility：V2Board 订单历史必须至少存在一笔 `plan_id>0` 且 status 为 `1`、`3` 或 `4` 的订单。无订单、pending-only、cancelled-only 或 deposit-only 用户返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，并且只调用 `user/order/fetch`，不读取 entry，也不生成 credential。
+两个 Public API 都复用当前 V2Board entitlement：Official `user/info` 必须表示未 banned、`transfer_enable>0`，且 `expired_at` 为未来时间或 `null`。明确无资格返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，不读取 entry，也不调用 `user/getSubscribe`；无法可靠解析或读取资格时 fail closed 为现有 upstream error，而不是伪装为 409。
 
 #### Entry Discovery
 
@@ -1535,7 +1535,7 @@ A1 `SOL-REG-KERNEL-01` 只增加 internal Control Plane / Registry validation ke
 
 A3 `SOL-REG-KERNEL-03` 以 additive extension 增加一个 anonymous Runtime Settings read route，使当前 route count 为 48。它是显式七字段 DTO，不是 generic Registry Browser API；不存在 Public Registry raw、health、check、refresh 或 maintenance route。
 
-SOL-REG-M04-M06-01 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Its initial implementation anchor is `96bfcb37ffa02589ee2566399a0f19816ac999b6`; the security/final runtime fix anchor is `92a9a432b46707b011c3456018fc15d836277ab1`; and the final independently reviewed/current-main anchor is `c884a73d93e240e2dddc7ea9f4e8ab58dffb736b`. Gemini review is `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`. It adds two authenticated `/api/v1` routes, making route count 50, while preserving all legacy CF-02 and legacy access routes. `GET /subscription/delivery-options` reuses existing previous-purchaser order eligibility and exposes only selectable Registry `subscription-delivery` `id/label`. `POST /subscription/access-link` accepts strict `entryId`, optional literal `profileId=default` and `subscriptionInfo=show|hide`; it reads the usable 24h Registry snapshot, calls Official `user/getSubscribe`, requires exact equality between `data.token` and the exactly-one strict token parsed from `subscribe_url`, then builds the URL from code-owned `publicOrigin/pathPrefix`. OTP/time-derived mismatch, malformed/duplicate token or hidden-origin conflict fail closed, without returning or logging credentials.
+SOL-REG-M04-M06-01 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Its initial implementation anchor is `96bfcb37ffa02589ee2566399a0f19816ac999b6`; the security/final runtime fix anchor is `92a9a432b46707b011c3456018fc15d836277ab1`; and the final independently reviewed/current-main anchor is `c884a73d93e240e2dddc7ea9f4e8ab58dffb736b`. Gemini review is `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`. It adds two authenticated `/api/v1` routes, making route count 50, while preserving all legacy CF-02 and legacy access routes. `GET /subscription/delivery-options` requires current Official `user/info` entitlement and exposes only selectable Registry `subscription-delivery` `id/label`. `POST /subscription/access-link` accepts strict `entryId`, optional literal `profileId=default` and `subscriptionInfo=show|hide`; after rechecking the same current entitlement, it reads the usable 24h Registry snapshot, calls Official `user/getSubscribe`, requires exact equality between `data.token` and the exactly-one strict token parsed from `subscribe_url`, then builds the URL from code-owned `publicOrigin/pathPrefix`. OTP/time-derived mismatch, malformed/duplicate token or hidden-origin conflict fail closed, without returning or logging credentials.
 
 Public bearer access支持 `GET /{token}` 与 `GET /{prefix}/{token}`；prefix是非reserved lowercase stable segment，不依赖当前Registry存在。Root refresh只将path token送往deployment-owned hidden V2Board origin与fixed `V2BOARD_SUBSCRIBE_PATH`，不读取Registry、order、getSubscribe或CF-02。profile absent/default执行D-005 verbatim stream；info absent/show保留`subscription-userinfo`，info=hide只移除该header，body bytes及其他safe headers不变。M05/YAML transform不在本阶段实现。
 
@@ -1751,12 +1751,12 @@ Authorization: Bearer <opaque-token>
 
 Request body：无。Public Contract 使用 POST 表达 credential mutation，不暴露官方 `resetSecurity` 命名，也不要求发送 `{}`。GET 同路径不是有效 API，且绝不触发 mutation。
 
-rotation 复用 `GET /api/v1/subscription` 已有的 previous-purchaser eligibility policy：V2Board 订单历史必须至少存在一笔 `plan_id>0` 且 status 为 1、3 或 4 的订单。空历史、只有 pending/cancelled 或只有 `plan_id=0` deposit order 时返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，只执行 `GET user/order/fetch`，不调用 `resetSecurity`。
+rotation 复用 `GET /api/v1/subscription` 已有的 current-entitlement policy：Official `user/info` 必须表示未 banned、`transfer_enable>0`，且 `expired_at` 为未来时间或 `null`。明确无资格返回 `409 SUBSCRIPTION_ACCESS_UNAVAILABLE`，只执行 `GET user/info`，不调用 `resetSecurity`。
 
 eligible 成功路径严格包含两次 upstream 调用：
 
 ```text
-GET user/order/fetch
+GET user/info
 GET user/resetSecurity
 ```
 
@@ -1782,7 +1782,7 @@ Rotation 会同时替换 V2Board token 和 UUID。旧 subscription URL 将失效
 | HTTP | Code | 场景 |
 | --- | --- | --- |
 | 401 | `AUTH_REQUIRED` / `AUTH_FAILED` | 缺少 credential 或 V2Board 拒绝 credential |
-| 409 | `SUBSCRIPTION_ACCESS_UNAVAILABLE` | 不满足已有 previous-purchaser access policy；不会执行 mutation |
+| 409 | `SUBSCRIPTION_ACCESS_UNAVAILABLE` | V2Board 明确表示当前订阅不可用；不会执行 mutation |
 | 502 | `SUBSCRIPTION_ROTATION_FAILED` | 官方 exact `Reset failed` / `重置失败` |
 | 502 | `UPSTREAM_ERROR` | malformed URL/response、HTML、invalid JSON 或未知 upstream error |
 | 504 | `UPSTREAM_TIMEOUT` | rotation 结果未知 |

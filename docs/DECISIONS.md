@@ -22,7 +22,7 @@
 
 ## D-005 Subscription access 实施约束
 
-- Legacy `GET /api/v1/subscription` metadata 仅向 V2Board 订单历史中存在成功订阅生命周期的 previous purchaser 提供 solution-owned access URL；pending、cancelled 和 deposit-only 用户不获得 URL。CF-02 entry discovery 与 selected-entry access 复用完全相同的 eligibility boundary。
+- Subscription credential APIs 以 Official `user/info` 的当前 entitlement 为统一边界：账号未 banned、`transfer_enable>0`，且 `expired_at` 为未来时间或 `null`。明确无资格不获得新 credential；字段缺失或 upstream failure 不默认放行，也不伪装为明确无资格。Legacy metadata、CF-02 compatibility、Registry delivery-options/access-link 与 rotation 复用该边界；root/prefix bearer URL 继续由 V2Board token/订阅路由权威验证。
 - V2Board 继续生成和验证 normal、OTP、time-based subscription token；Gateway 不建立 token 数据库或第二套 token 算法。
 - V2Board subscription route 来自固定部署配置，public request 不能选择 upstream path、origin 或额外 query。
 - 成功 subscription body 使用 `Response.body` verbatim stream，不读取、不缓存、不转换协议；只转发经批准的 subscription response headers。

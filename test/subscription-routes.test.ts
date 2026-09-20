@@ -43,6 +43,10 @@ function responseWithCancellableBody(
   );
 }
 
+const currentEntitlement = {
+  data: { banned: 0, transfer_enable: 1024, expired_at: 253_402_300_799 },
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -50,14 +54,13 @@ afterEach(() => {
 
 describe('GET /api/v1/subscription', () => {
   it.each([
-    ['fresh registration', []],
-    ['pending order', [{ plan_id: 7, status: 0 }]],
-    ['cancelled order', [{ plan_id: 7, status: 2 }]],
-    ['deposit order', [{ plan_id: 0, status: 3 }]],
-  ])('withholds access URL for %s', async (_case, orders) => {
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
+  ])('withholds access URL for %s', async (_case, entitlement) => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ data: orders }));
+      .mockResolvedValue(jsonResponse({ data: entitlement }));
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.fetch(subscriptionRequest(), env);
@@ -72,17 +75,13 @@ describe('GET /api/v1/subscription', () => {
     expect(upstreamFetch).toHaveBeenCalledOnce();
   });
 
-  it.each([1, 3, 4])(
-    'returns a solution URL for qualifying status %s',
-    async (status) => {
-      const token = `mode_token-${status}`;
+  it(
+    'returns a solution URL for current entitlement without order history',
+    async () => {
+      const token = 'mode_token-current';
       const upstreamFetch = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({
-            data: [{ plan_id: 7, status, internal: 'must-not-leak' }],
-          })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({
             data: {
@@ -175,14 +174,13 @@ describe('POST /api/v1/subscription/rotate-access', () => {
   }
 
   it.each([
-    ['fresh registration', []],
-    ['pending order', [{ plan_id: 7, status: 0 }]],
-    ['cancelled order', [{ plan_id: 7, status: 2 }]],
-    ['deposit order', [{ plan_id: 0, status: 3 }]],
-  ])('rejects %s before resetSecurity', async (_case, orders) => {
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
+  ])('rejects %s before resetSecurity', async (_case, entitlement) => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ data: orders }));
+      .mockResolvedValue(jsonResponse({ data: entitlement }));
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.fetch(rotationRequest(), env);
@@ -194,19 +192,17 @@ describe('POST /api/v1/subscription/rotate-access', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(upstreamFetch).toHaveBeenCalledOnce();
     expect(upstreamFetch.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
-  it.each([1, 3, 4])(
-    'rotates status %s into a solution-owned URL with exactly two calls',
-    async (status) => {
-      const token = `ROTATED_SECRET_TOKEN_${status}`;
+  it(
+    'rotates a current entitlement into a solution-owned URL with exactly two calls',
+    async () => {
+      const token = 'ROTATED_SECRET_TOKEN_CURRENT';
       const upstreamFetch = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({
             data: `https://v2board-hidden.example/raw/subscribe?token=${token}`,
@@ -235,7 +231,7 @@ describe('POST /api/v1/subscription/rotate-access', () => {
       expect(response.headers.get('cache-control')).toBe('no-store');
       expect(upstreamFetch).toHaveBeenCalledTimes(2);
       expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
-        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/info',
         'https://private.example/api/v1/user/resetSecurity',
       ]);
     }
@@ -269,9 +265,7 @@ describe('POST /api/v1/subscription/rotate-access', () => {
     const token = 'ROTATED_SECRET_TOKEN_ABC123';
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({ message, token, uuid: 'private-uuid' }, 500)
       );
@@ -294,9 +288,7 @@ describe('POST /api/v1/subscription/rotate-access', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockRejectedValueOnce(
         new DOMException(`timed out ${secret}`, 'TimeoutError')
       );
@@ -310,7 +302,7 @@ describe('POST /api/v1/subscription/rotate-access', () => {
     expect(text).not.toContain(secret);
     expect(upstreamFetch).toHaveBeenCalledTimes(2);
     expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
-      'https://private.example/api/v1/user/order/fetch',
+      'https://private.example/api/v1/user/info',
       'https://private.example/api/v1/user/resetSecurity',
     ]);
     const logged = JSON.stringify([...error.mock.calls, ...log.mock.calls]);

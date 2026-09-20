@@ -118,9 +118,14 @@ describe('Worker fetch and scheduled boundaries', () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
-        new Response(JSON.stringify({ data: [] }), {
+        new Response(
+          JSON.stringify({
+            data: { banned: 0, transfer_enable: 0, expired_at: null },
+          }),
+          {
           headers: { 'Content-Type': 'application/json' },
-        })
+          }
+        )
       );
     vi.stubGlobal('fetch', fetcher);
     const response = await worker.fetch!(
@@ -145,7 +150,7 @@ describe('Worker fetch and scheduled boundaries', () => {
     });
     expect(fetcher).toHaveBeenCalledOnce();
     expect(String(fetcher.mock.calls[0][0])).toBe(
-      'https://backend.example/api/v1/user/order/fetch'
+      'https://backend.example/api/v1/user/info'
     );
   });
 });

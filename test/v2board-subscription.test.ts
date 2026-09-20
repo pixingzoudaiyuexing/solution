@@ -49,24 +49,17 @@ function responseWithCancellableBody(
   );
 }
 
+const currentEntitlement = {
+  data: { banned: 0, transfer_enable: 1024, expired_at: 253_402_300_799 },
+};
+
 describe('V2BoardSubscriptionAdapter metadata', () => {
-  it.each([1, 3, 4])(
-    'treats subscription order status %s as previously purchased',
-    async (status) => {
+  it(
+    'uses current V2Board entitlement without historical-order evidence',
+    async () => {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({
-            data: [
-              {
-                plan_id: 7,
-                status,
-                callback_no: 'private-callback',
-                payment_id: 3,
-              },
-            ],
-          })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({
             data: {
@@ -89,17 +82,9 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
   );
 
   it.each([
-    ['no orders', []],
-    ['pending only', [{ plan_id: 7, status: 0 }]],
-    ['cancelled only', [{ plan_id: 7, status: 2 }]],
-    [
-      'deposit only',
-      [
-        { plan_id: 0, status: 1 },
-        { plan_id: 0, status: 3 },
-        { plan_id: 0, status: 4 },
-      ],
-    ],
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
   ])('does not request a subscription credential for %s', async (_case, data) => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -110,14 +95,16 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
     ).resolves.toEqual({ eligible: false });
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
-  it('fails closed on malformed order history without requesting credentials', async () => {
+  it('fails closed on malformed entitlement without requesting credentials', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ data: [{ plan_id: 7, status: '3' }] }));
+      .mockResolvedValue(
+        jsonResponse({ data: { banned: 0, transfer_enable: '1024', expired_at: null } })
+      );
 
     await expect(
       createAdapter(fetcher).subscriptionAccess('opaque-auth')
@@ -128,9 +115,7 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
   it('fails closed on a malformed generated subscription URL', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({
           data: {
@@ -246,17 +231,9 @@ describe('V2BoardSubscriptionAdapter metadata', () => {
 
 describe('V2BoardSubscriptionAdapter credential rotation', () => {
   it.each([
-    ['no orders', []],
-    ['pending only', [{ plan_id: 7, status: 0 }]],
-    ['cancelled only', [{ plan_id: 7, status: 2 }]],
-    [
-      'deposit only',
-      [
-        { plan_id: 0, status: 1 },
-        { plan_id: 0, status: 3 },
-        { plan_id: 0, status: 4 },
-      ],
-    ],
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
   ])('does not mutate credentials for %s', async (_case, data) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ data })
@@ -267,19 +244,17 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
     ).rejects.toBeInstanceOf(V2BoardSubscriptionAccessUnavailableError);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
-  it.each([1, 3, 4])(
-    'uses exactly eligibility and resetSecurity for qualifying status %s',
-    async (status) => {
-      const token = `ROTATED_SECRET_TOKEN_${status}`;
+  it(
+    'uses exactly current entitlement and resetSecurity',
+    async () => {
+      const token = 'ROTATED_SECRET_TOKEN_CURRENT';
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({
             data: `https://v2board-hidden.example/secret/path?token=${token}`,
@@ -292,7 +267,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
       ).resolves.toBe(token);
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/info',
         'https://private.example/api/v1/user/resetSecurity',
       ]);
       expect(fetcher.mock.calls[1][1]?.method).toBe('GET');
@@ -315,9 +290,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
   ])('fails closed on malformed rotated URL %s', async (url) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(jsonResponse({ data: url }));
 
     await expect(
@@ -335,9 +308,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
   ])('fails closed on malformed rotation response %#', async (payload) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(jsonResponse(payload));
 
     await expect(
@@ -350,9 +321,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
     async (message) => {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(jsonResponse({ message }, 500));
 
       await expect(
@@ -365,9 +334,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
     for (const message of ['Save failed', 'Reset failed with database detail']) {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(jsonResponse({ message }, 500));
       await expect(
         createAdapter(fetcher).rotateAccess('opaque-auth')
@@ -393,9 +360,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
     ]) {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(response);
       await expect(
         createAdapter(fetcher).rotateAccess('opaque-auth')
@@ -405,9 +370,7 @@ describe('V2BoardSubscriptionAdapter credential rotation', () => {
 
     const timeoutFetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({ data: [{ plan_id: 7, status: 3 }] })
-      )
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
     await expect(
       createAdapter(timeoutFetcher).rotateAccess('opaque-auth')
