@@ -24,7 +24,9 @@ function request(
   return new Request(`https://gateway.example${path}`, { ...init, headers });
 }
 
-const qualifyingHistory = { data: [{ plan_id: 7, status: 3 }] };
+const currentEntitlement = {
+  data: { banned: 0, transfer_enable: 1024, expired_at: 253_402_300_799 },
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -49,14 +51,13 @@ describe('GET /api/v1/subscription/entries', () => {
   });
 
   it.each([
-    ['never purchased', []],
-    ['pending-only', [{ plan_id: 7, status: 0 }]],
-    ['cancelled-only', [{ plan_id: 7, status: 2 }]],
-    ['deposit-only', [{ plan_id: 0, status: 3 }]],
-  ])('returns CF-01 unavailable for %s without discovering entries', async (_case, orders) => {
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
+  ])('returns unavailable for %s without discovering entries', async (_case, entitlement) => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ data: orders }));
+      .mockResolvedValue(jsonResponse({ data: entitlement }));
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.fetch(
@@ -71,14 +72,14 @@ describe('GET /api/v1/subscription/entries', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(upstreamFetch).toHaveBeenCalledOnce();
     expect(upstreamFetch.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
   it('returns ordered normalized entries with no-store and no upstream fields', async () => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({
           data: {
@@ -118,7 +119,7 @@ describe('GET /api/v1/subscription/entries', () => {
     async (_case, legacyPath) => {
       const upstreamFetch = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({
             data: { entries: [{ base_url: 'https://a.example.com' }] },
@@ -136,7 +137,7 @@ describe('GET /api/v1/subscription/entries', () => {
         data: { entries: [{ baseUrl: 'https://a.example.com' }] },
       });
       expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
-        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/info',
         'https://private.example/api/v1/user/getSubscribeEntries',
       ]);
     }
@@ -203,7 +204,9 @@ describe('POST /api/v1/subscription/entry-access', () => {
   it('returns CF-01 unavailable before selected-entry generation', async () => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ data: [] }));
+      .mockResolvedValue(
+        jsonResponse({ data: { banned: 0, transfer_enable: 0, expired_at: null } })
+      );
     vi.stubGlobal('fetch', upstreamFetch);
 
     const response = await app.fetch(
@@ -228,7 +231,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
       'https://x.example.com/p/api/v1/client/subscribe?token=opaque_secret&mode=otp';
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({
           data: { subscribe_url: accessUrl, uuid: 'must-not-leak' },
@@ -260,7 +263,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(text).not.toContain('must-not-leak');
     expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
-      'https://private.example/api/v1/user/order/fetch',
+      'https://private.example/api/v1/user/info',
       'https://private.example/api/v1/user/getSubscribeForEntry',
     ]);
     expect(upstreamFetch.mock.calls[1][1]?.body).toBe(
@@ -278,7 +281,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
       const accessUrl = `${baseUrl}/api/v1/client/subscribe?token=opaque`;
       const upstreamFetch = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(
           jsonResponse({ data: { subscribe_url: accessUrl } })
         );
@@ -296,7 +299,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ data: { accessUrl } });
       expect(upstreamFetch.mock.calls.map(([url]) => url)).toEqual([
-        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/info',
         'https://private.example/api/v1/user/getSubscribeForEntry',
       ]);
     }
@@ -305,7 +308,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
   it.each([401, 403])('maps upstream auth status %s to AUTH_FAILED', async (status) => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(jsonResponse({ message: 'private' }, status));
     vi.stubGlobal('fetch', upstreamFetch);
 
@@ -328,7 +331,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
     const selected = 'https://stale-secret.example/p';
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse(
           { message: 'Selected subscription entry is invalid' },
@@ -371,7 +374,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
   ])('normalizes %s', async (_case, upstreamResponse, status, code) => {
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(upstreamResponse);
     vi.stubGlobal('fetch', upstreamFetch);
 
@@ -395,7 +398,7 @@ describe('POST /api/v1/subscription/entry-access', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const upstreamFetch = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockRejectedValueOnce(
         new DOMException(`timeout ${credential}`, 'TimeoutError')
       );

@@ -27,23 +27,20 @@ function createAdapter(fetcher: typeof fetch): V2BoardSubscriptionAdapter {
   );
 }
 
-const qualifyingHistory = {
-  data: [{ plan_id: 7, status: 3, internal: 'must-not-leak' }],
+const currentEntitlement = {
+  data: {
+    banned: 0,
+    transfer_enable: 1024,
+    expired_at: 253_402_300_799,
+    internal: 'must-not-leak',
+  },
 };
 
 describe('V2BoardSubscriptionAdapter CF-02 eligibility', () => {
   it.each([
-    ['no orders', []],
-    ['pending only', [{ plan_id: 7, status: 0 }]],
-    ['cancelled only', [{ plan_id: 7, status: 2 }]],
-    [
-      'deposit only',
-      [
-        { plan_id: 0, status: 1 },
-        { plan_id: 0, status: 3 },
-        { plan_id: 0, status: 4 },
-      ],
-    ],
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
   ])('blocks entry discovery for %s before its upstream endpoint', async (_case, data) => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -54,15 +51,14 @@ describe('V2BoardSubscriptionAdapter CF-02 eligibility', () => {
     ).rejects.toBeInstanceOf(V2BoardSubscriptionAccessUnavailableError);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
   it.each([
-    ['no orders', []],
-    ['pending only', [{ plan_id: 7, status: 0 }]],
-    ['cancelled only', [{ plan_id: 7, status: 2 }]],
-    ['deposit only', [{ plan_id: 0, status: 3 }]],
+    ['expired entitlement', { banned: 0, transfer_enable: 1024, expired_at: 1 }],
+    ['banned account', { banned: 1, transfer_enable: 1024, expired_at: null }],
+    ['zero allowance', { banned: 0, transfer_enable: 0, expired_at: null }],
   ])('blocks selected entry access for %s before its upstream endpoint', async (_case, data) => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -76,25 +72,23 @@ describe('V2BoardSubscriptionAdapter CF-02 eligibility', () => {
     ).rejects.toBeInstanceOf(V2BoardSubscriptionAccessUnavailableError);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0][0]).toBe(
-      'https://private.example/api/v1/user/order/fetch'
+      'https://private.example/api/v1/user/info'
     );
   });
 
-  it.each([1, 3, 4])(
-    'allows the unchanged CF-01 qualifying status %s',
-    async (status) => {
+  it(
+    'allows a current entitlement without historical-order evidence',
+    async () => {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          jsonResponse({ data: [{ plan_id: 7, status }] })
-        )
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(jsonResponse({ data: { entries: [] } }));
 
       await expect(
         createAdapter(fetcher).subscriptionEntries('opaque-auth')
       ).resolves.toEqual([]);
       expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-        'https://private.example/api/v1/user/order/fetch',
+        'https://private.example/api/v1/user/info',
         'https://private.example/api/v1/user/getSubscribeEntries',
       ]);
     }
@@ -116,7 +110,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
   ])('maps %s entries without sorting or relabeling', async (_case, entries) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({
           data: { entries, internal: 'must-not-leak' },
@@ -130,7 +124,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
       entries.map(({ base_url }) => ({ baseUrl: base_url }))
     );
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-      'https://private.example/api/v1/user/order/fetch',
+      'https://private.example/api/v1/user/info',
       'https://private.example/api/v1/user/getSubscribeEntries',
     ]);
   });
@@ -152,7 +146,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
   ])('fails closed on malformed or pathological entry payload %#', async (payload) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(jsonResponse(payload));
 
     await expect(
@@ -165,7 +159,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
     async (status) => {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(jsonResponse({ message: 'private' }, status));
 
       await expect(
@@ -180,7 +174,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
   ])('normalizes %s from entry discovery', async (_case, response) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(response);
 
     await expect(
@@ -194,7 +188,7 @@ describe('V2BoardSubscriptionAdapter CF-02 entry discovery', () => {
   ])('normalizes entry-discovery transport failures', async (failure, ErrorType) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockRejectedValueOnce(failure);
 
     await expect(
@@ -212,7 +206,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
     const accessUrl = `${baseUrl}/api/v1/client/subscribe?token=opaque_${_label}`;
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({
           data: { subscribe_url: accessUrl, token: 'must-not-leak' },
@@ -225,7 +219,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
     ).resolves.toBe(accessUrl);
 
     expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
-      'https://private.example/api/v1/user/order/fetch',
+      'https://private.example/api/v1/user/info',
       'https://private.example/api/v1/user/getSubscribeForEntry',
     ]);
     const init = fetcher.mock.calls[1][1];
@@ -243,7 +237,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
       'https://x.example.com/p/api/v1/client/subscribe?token=OTP_secret&mode=one-time';
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse({ data: { subscribe_url: accessUrl } })
       );
@@ -261,7 +255,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
     async (status) => {
       const fetcher = vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+        .mockResolvedValueOnce(jsonResponse(currentEntitlement))
         .mockResolvedValueOnce(jsonResponse({ message: 'private' }, status));
 
       await expect(
@@ -276,7 +270,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
   it('maps only the official stale selection response to the neutral entry error', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(
         jsonResponse(
           { message: 'Selected subscription entry is invalid' },
@@ -299,7 +293,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
   ])('fails closed on upstream HTTP %s payload %#', async (status, payload) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(jsonResponse(payload, status));
 
     await expect(
@@ -322,7 +316,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
   ])('fails closed on %s without credential recovery', async (_case, response) => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockResolvedValueOnce(response);
 
     await expect(
@@ -345,7 +339,7 @@ describe('V2BoardSubscriptionAdapter CF-02 selected entry access', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(qualifyingHistory))
+      .mockResolvedValueOnce(jsonResponse(currentEntitlement))
       .mockRejectedValueOnce(failure);
 
     await expect(

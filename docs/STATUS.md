@@ -107,7 +107,7 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Gemini: `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`.
 - `subscription-delivery` is authenticated, schema v1, code-owned `STALE_TOLERANT` with 86400-second bound; registered modules are runtime-settings, custom-pages and subscription-delivery only.
 - New authenticated APIs are `GET /api/v1/subscription/delivery-options` and `POST /api/v1/subscription/access-link`; `/api/v1` route count is `50`.
-- New link generation preserves previous-purchaser eligibility and requires exact Official `data.token` / subscribe_url token equality; hidden-origin conflicts and unusable Registry state fail closed without credential disclosure.
+- The current entitlement correction replaces previous-purchaser history with Official `user/info` fields matching `UserService::isAvailable()` before new credential issuance, while retaining exact Official `data.token` / subscribe_url equality. It is pending independent review and Primary acceptance; hidden-origin conflicts and unusable Registry state still fail closed without credential disclosure.
 - Root `/{token}` and `/{prefix}/{token}` refresh is Registry-independent and streams through the fixed hidden origin/path. `info=hide` removes only `subscription-userinfo`; M05/YAML transformation is NOT IMPLEMENTED.
 - Legacy CF-02 entries/entry-access, legacy access route, overview, rotate and advance remain unchanged. Aureole/V2Board/Production are unchanged.
 - State: `PASS / COMPLETE / CLOSED / RE-FROZEN`; Production remains `NOT AUTHORIZED / NOT DEPLOYED`.
