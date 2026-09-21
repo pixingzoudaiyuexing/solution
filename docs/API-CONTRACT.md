@@ -13,6 +13,7 @@
 | `GET /api/v1/config/onboarding`        | No             | `guest/comm/config`             |
 | `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
 | `GET /api/v1/config/runtime`           | No             | Registry operational snapshot   |
+| `GET /api/v1/announcements`            | Optional Bearer | Registry operational snapshot  |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
 | `GET /api/v1/me/preferences`           | Yes            | `user/info`                     |
@@ -1344,6 +1345,72 @@ Registry module identity 为 `registry:custom-pages`，schema version 为 `1`，
 `GET /api/v1/custom-pages` 要求 Bearer，并首先执行既有 canonical `AUTH_REQUIRED`/`AUTH_FAILED` normalization。成功 session validation 后，缺少/损坏/disabled/absent/stale Registry state 均返回 HTTP 200 `{ "items": [] }`，不会回退到 Notice，也不会合并 Registry 与 Notice。不存在 subscription entitlement/purchase gate。Solution 不请求 target：不会执行 fetch/HEAD/DNS/availability probe、redirect follow、iframe proxy、token/Authorization 注入或 cookie bridge。Custom Pages Browser request 在 session validation 之外不调用 Admin Knowledge、Control Plane、Registry refresh、Notice API、V2Board其他 API 或 external provider。
 
 Public DTO 不公开 `enabled`、Registry module/schema/exposure、validation/health/freshness/source metadata、fingerprint、raw config/body、secret/ref、KV key 或 Control Plane error。普通 Notice list/detail 仍维持 lowercase `aureole:*` reserved-row isolation；legacy Notice rows不在本阶段删除。
+
+### M12 Registry Announcements
+
+```http
+GET /api/v1/announcements
+Authorization: Bearer <opaque-token>  # optional
+```
+
+该 route 是 Registry 驱动的轻量公告/提醒 read API，不是 V2Board Notice list/detail 的替代、fallback 或 merge source。它不定义 request body、query 参数或内容筛选语义，所有 query input 均不读取也不影响响应；Browser 不能触发 Control Plane、Registry refresh、Admin Knowledge、V2Board Notice API 或其他 external fetch。
+
+无 `Authorization` 时，route 只返回 `visibility: "public"` 的 safe snapshot item，且不执行 V2Board 请求。存在 Bearer 时必须是单个合法 Bearer 格式，并先通过 Official `GET user/info` 验证真实 session；验证成功后才返回 `public` 与 `authenticated` items。格式错误的 Authorization 返回 `401 AUTH_REQUIRED`；V2Board 拒绝 credential 返回 `401 AUTH_FAILED`；认证上游 malformed/error 或 timeout 分别返回既有 `502 UPSTREAM_ERROR` 或 `504 UPSTREAM_TIMEOUT`。认证失败绝不静默降级为 visitor response。
+
+Success DTO：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "maintenance-window",
+        "title": "Maintenance notice",
+        "body": "A maintenance window is scheduled."
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`items` 按 Registry `sort` 升序，再按 stable `id` ASCII lexical 升序稳定排列。Public DTO 仅包含 `id`、`title` 和 `body`，不返回 visibility、sort、enabled、source、freshness、fingerprint、raw Knowledge、KV key、Registry module metadata 或任何 Secret。
+
+Registry module identity 是 `registry:announcements`，schema version 为 `1`，maximum exposure 为 `authenticated`，使用 code-owned `STALE_TOLERANT` 86400-second bound。最小配置：
+
+```json
+{
+  "kind": "aureole.registry",
+  "moduleId": "announcements",
+  "schemaVersion": 1,
+  "enabled": true,
+  "config": {
+    "items": [
+      {
+        "id": "maintenance-window",
+        "title": "Maintenance notice",
+        "body": "A maintenance window is scheduled.",
+        "enabled": true,
+        "sort": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "account-reminder",
+        "title": "Account reminder",
+        "body": "Please review your account settings.",
+        "enabled": true,
+        "sort": 20,
+        "visibility": "authenticated"
+      }
+    ]
+  }
+}
+```
+
+Item ID 必须为 stable ID；title 1-160 characters、body 1-4000 characters，均为 trim 后 pure text，拒绝 HTML-like `<`/`>`、控制字符和未知字段。每个 module 最多 100 items；sort 为 0-1000000 的整数。`enabled: false` item 不进入 safe snapshot。模块明确 disabled 或 absent 时会清除 LKG，route 返回 HTTP 200 empty `items`，不能重新显示旧公告。缺失、corrupt、unavailable 或超过 freshness bound 的 snapshot 同样返回 HTTP 200 empty `items`。当前实现不支持有效时间、placement、dismiss persistence、localized editing、富文本、audience group/plan/role rules、pagination、push/email/Telegram 或管理 CRUD。
+
+M12 是 additive v1 extension；当前 `/api/v1` source route count 为 `51`。
 
 ### Traffic History
 
