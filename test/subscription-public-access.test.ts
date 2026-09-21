@@ -38,7 +38,52 @@ describe('public root subscription access', () => {
   });
 
   it.each([
-    '/app/update',
+    ['/app/update', '/app/update', 'update'],
+    ['/subscribe', '/subscribe', 'subscribe'],
+  ])('falls through a configured legacy path without a token query to the modern route', async (path, configuredPath, modernToken) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('modern', { status: 200, headers: { 'Content-Type': 'application/octet-stream' } })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example${path}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: configuredPath },
+      ctx
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('modern');
+    expect(String(fetcher.mock.calls[0][0])).toBe(
+      `https://hidden.example${configuredPath}?token=${modernToken}`
+    );
+  });
+
+  it.each([
+    [`/app/update?info=hide`, '/app/update', 'update'],
+    [`/subscribe?profile=default`, '/subscribe', 'subscribe'],
+  ])('keeps modern query semantics when a configured legacy path has no token query', async (path, configuredPath, modernToken) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('modern', { status: 200, headers: { 'subscription-userinfo': 'upload=1' } })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example${path}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: configuredPath },
+      ctx
+    );
+
+    expect(response.status).toBe(200);
+    expect(String(fetcher.mock.calls[0][0])).toBe(
+      `https://hidden.example${configuredPath}?token=${modernToken}`
+    );
+    if (path.includes('info=hide')) expect(response.headers.get('subscription-userinfo')).toBeNull();
+    else expect(response.headers.get('subscription-userinfo')).toBe('upload=1');
+  });
+
+  it.each([
+    '/app/update?token=',
     `/app/update?token=${TOKEN}&token=${TOKEN}`,
     '/app/update?token=bad.token',
     `/app/update?token=${TOKEN}&info=hide`,

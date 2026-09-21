@@ -45,8 +45,9 @@ function configuredLegacyPath(value: string | undefined): string | undefined {
   }
 }
 
-function legacyToken(url: string): string {
+function legacyToken(url: string): string | undefined {
   const entries = [...new URL(url).searchParams.entries()];
+  if (!entries.some(([key]) => key === 'token')) return undefined;
   if (entries.length !== 1 || entries[0][0] !== 'token') throw new Error();
   return validateSubscriptionToken(entries[0][1]);
 }
@@ -87,7 +88,8 @@ router.get('*', async (c, next) => {
     return next();
   }
   try {
-    return serve(c, undefined, legacyToken(c.req.url), 'show');
+    const token = legacyToken(c.req.url);
+    return token === undefined ? next() : serve(c, undefined, token, 'show');
   } catch {
     return unavailable(400);
   }
