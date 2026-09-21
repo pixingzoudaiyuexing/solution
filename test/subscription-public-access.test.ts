@@ -7,6 +7,90 @@ const ctx = {} as ExecutionContext;
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('public root subscription access', () => {
+  it.each([
+    ['/app/update', '/app/update'],
+    ['/legacy/client/subscribe', '/legacy/client/subscribe'],
+  ])('streams the configured legacy path %s using its token query', async (path, configuredPath) => {
+    const bytes = new Uint8Array([4, 3, 2, 1]);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(bytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'subscription-userinfo': 'upload=1',
+        },
+      })
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example${path}?token=${TOKEN}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: configuredPath },
+      ctx
+    );
+
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(String(fetcher.mock.calls[0][0])).toBe(
+      `https://hidden.example${configuredPath}?token=${TOKEN}`
+    );
+    expect(response.headers.get('subscription-userinfo')).toBe('upload=1');
+  });
+
+  it.each([
+    '/app/update',
+    `/app/update?token=${TOKEN}&token=${TOKEN}`,
+    '/app/update?token=bad.token',
+    `/app/update?token=${TOKEN}&info=hide`,
+  ])('rejects an invalid legacy query on %s without upstream access', async (path) => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example${path}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: '/app/update' },
+      ctx
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('subscription_unavailable');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    `/other/update?token=${TOKEN}`,
+    `/app/Update?token=${TOKEN}`,
+    `/app/%75pdate?token=${TOKEN}`,
+    `/app/%2Fupdate?token=${TOKEN}`,
+  ])('does not proxy a non-exact legacy path %s', async (path) => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example${path}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: '/app/update' },
+      ctx
+    );
+
+    expect([400, 404]).toContain(response.status);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not let a conflicting configured path shadow the api namespace', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await worker.fetch!(
+      new Request(`https://gateway.example/api/v1/subscription?token=${TOKEN}`),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: '/api/v1/subscription' },
+      ctx
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toContain('AUTH_REQUIRED');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it.each([`/${TOKEN}`, `/zzz/${TOKEN}`, `/${TOKEN}?profile=default`, `/${TOKEN}?info=show`, `/${TOKEN}?info=hide`, `/zzz/${TOKEN}?profile=default&info=hide`])('streams %s from fixed hidden origin only', async (path) => {
     const bytes = new Uint8Array([0, 1, 2, 255]);
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/octet-stream', 'subscription-userinfo': 'upload=1', 'profile-title': 'Test' } })); vi.stubGlobal('fetch', fetcher);
@@ -68,5 +152,27 @@ describe('public root subscription access', () => {
     expect(response.status).toBe(400);
     expect(JSON.stringify([...log.mock.calls, ...error.mock.calls])).not.toContain(path);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not log legacy bearer query credentials', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(new Response('private', { status: 500 }))
+    );
+    const rawUrl = `https://gateway.example/app/update?token=${TOKEN}`;
+
+    const response = await worker.fetch!(
+      new Request(rawUrl),
+      { ...env, V2BOARD_SUBSCRIBE_PATH: '/app/update' },
+      ctx
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe('subscription_unavailable');
+    const output = JSON.stringify([...log.mock.calls, ...error.mock.calls]);
+    expect(output).not.toContain(TOKEN);
+    expect(output).not.toContain(rawUrl);
   });
 });
