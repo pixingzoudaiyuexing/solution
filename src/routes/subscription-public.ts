@@ -4,7 +4,10 @@ import { V2BoardSubscriptionAdapter } from '../adapters/v2board/subscription';
 import { V2BoardSubscriptionUnavailableError, V2BoardTimeoutError } from '../adapters/v2board/errors';
 import type { Env } from '../config/env';
 import { validateSubscriptionPathPrefix } from '../registry/modules/subscription-delivery';
-import { validateSubscriptionToken } from '../security/subscription';
+import {
+  normalizeV2BoardSubscribePath,
+  validateSubscriptionToken,
+} from '../security/subscription';
 import { validateTrustedUserAgent } from '../security/user-agent';
 
 const router = new Hono<{ Bindings: Env }>();
@@ -32,14 +35,36 @@ function parseQuery(url: string): { info: 'show' | 'hide' } {
   return { info };
 }
 
-async function serve(c: any, prefix: string | undefined, tokenValue: string): Promise<Response> {
+function configuredLegacyPath(value: string | undefined): string | undefined {
+  try {
+    const path = `/${normalizeV2BoardSubscribePath(value)}`;
+    const namespace = path.slice(1).split('/', 1)[0];
+    return namespace === 'api' || namespace === 'cdn-cgi' ? undefined : path;
+  } catch {
+    return undefined;
+  }
+}
+
+function legacyToken(url: string): string | undefined {
+  const entries = [...new URL(url).searchParams.entries()];
+  if (!entries.some(([key]) => key === 'token')) return undefined;
+  if (entries.length !== 1 || entries[0][0] !== 'token') throw new Error();
+  return validateSubscriptionToken(entries[0][1]);
+}
+
+async function serve(
+  c: any,
+  prefix: string | undefined,
+  tokenValue: string,
+  legacyInfo?: 'show'
+): Promise<Response> {
   let token: string;
   let info: 'show' | 'hide';
   let userAgent: string | undefined;
   try {
     if (prefix !== undefined) validateSubscriptionPathPrefix(prefix);
     token = validateSubscriptionToken(tokenValue);
-    info = parseQuery(c.req.url).info;
+    info = legacyInfo ?? parseQuery(c.req.url).info;
     const rawUa = c.req.header('User-Agent');
     userAgent = rawUa ? validateTrustedUserAgent(rawUa) : undefined;
   } catch { return unavailable(400); }
@@ -56,6 +81,19 @@ async function serve(c: any, prefix: string | undefined, tokenValue: string): Pr
     return unavailable(502);
   }
 }
+
+router.get('*', async (c, next) => {
+  const configuredPath = configuredLegacyPath(c.env.V2BOARD_SUBSCRIBE_PATH);
+  if (configuredPath === undefined || new URL(c.req.url).pathname !== configuredPath) {
+    return next();
+  }
+  try {
+    const token = legacyToken(c.req.url);
+    return token === undefined ? next() : serve(c, undefined, token, 'show');
+  } catch {
+    return unavailable(400);
+  }
+});
 
 router.get('/:token', (c) => serve(c, undefined, c.req.param('token')));
 router.get('/:prefix/:token', (c) => {
