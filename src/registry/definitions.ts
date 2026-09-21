@@ -1,4 +1,5 @@
 import type { RegistryOperationalModuleDefinition } from './operational';
+import { announcementsOperationalDefinition } from './modules/announcements';
 import { customPagesOperationalDefinition } from './modules/custom-pages';
 import { runtimeSettingsOperationalDefinition } from './modules/runtime-settings';
 import { subscriptionDeliveryOperationalDefinition } from './modules/subscription-delivery';
@@ -6,4 +7,9 @@ import { subscriptionDeliveryOperationalDefinition } from './modules/subscriptio
 export const registryOperationalDefinitions: readonly RegistryOperationalModuleDefinition<
   any,
   any
->[] = [runtimeSettingsOperationalDefinition, customPagesOperationalDefinition, subscriptionDeliveryOperationalDefinition];
+>[] = [
+  runtimeSettingsOperationalDefinition,
+  customPagesOperationalDefinition,
+  subscriptionDeliveryOperationalDefinition,
+  announcementsOperationalDefinition,
+];

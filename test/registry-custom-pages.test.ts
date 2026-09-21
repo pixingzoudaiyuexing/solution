@@ -31,6 +31,7 @@ describe('REG-M02 Custom Pages definition', () => {
       'runtime-settings',
       'custom-pages',
       'subscription-delivery',
+      'announcements',
     ]);
   });
 
