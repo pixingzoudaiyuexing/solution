@@ -21,7 +21,7 @@ CF-03B Dynamic Custom Pages 保持 authenticated `/api/v1/custom-pages` path 与
 
 Gateway 只转换 Contract、过滤字段、规范化错误并受控转发；V2Board 继续拥有验证码、注册规则、用户、订单、支付、subscription、ticket、notice、knowledge、traffic、invite、commission 和所有业务状态。Payment Provider callback 仍直接进入 V2Board。
 
-M10 Solution 配置批次新增 Reserved Knowledge `support-widget` 模块与匿名 `GET /api/v1/config/support-widget`，分别表达 Crisp/Chatwoot 的显式启停与必要公开 Widget bootstrap 字段。仅从现有 `REGISTRY_KV` 安全快照读取；缺失、停用或不可用默认两者停用，不引入客服中心、用户身份同步、任意脚本源或新持久化。Aureole Consumer、真实 Provider 配置与浏览器验收不属于本批次；新增一条 `/api/v1` Public route，当前代码共 52 条。此段是 M10 新增状态，以上 A1/A2/A3 历史阶段数字仍指各自当时的基线。
+M10 Solution 配置批次新增 Reserved Knowledge `support-widget` 模块与匿名 `GET /api/v1/config/support-widget`，仅表达 Crisp 的显式启停与必要公开 Website ID；Chatwoot 不受支持。只从现有 `REGISTRY_KV` 安全快照读取；缺失、停用或不可用默认 Crisp 停用，不引入客服中心、用户身份同步、任意脚本源或新持久化。Aureole Consumer、真实 Crisp 配置与浏览器验收不属于本批次；新增一条 `/api/v1` Public route，当前代码共 52 条。此段是 M10 新增状态，以上 A1/A2/A3 历史阶段数字仍指各自当时的基线。
 
 A1 `SOL-REG-KERNEL-01` 增加 internal-only Control Plane 与 Registry validation primitives，不增加 Public API。Official Admin Knowledge 是 reserved Registry raw source；Solution 只通过 deployment-owned `V2BOARD_CONTROL_AUTH_DATA` 和 `V2BOARD_CONTROL_ADMIN_PREFIX` 执行 code-owned list/detail read。Registry Kernel 严格验证 identity/envelope/module schema、stable IDs/references、exposure、DTO allowlist与provider secrets，并保持 module-level fail closed。A1 不增加 KV/snapshot/scheduler，不让 Browser request触发 Admin fetch，也不修改 V2Board 或 Aureole。
 

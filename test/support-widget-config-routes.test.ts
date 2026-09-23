@@ -8,9 +8,8 @@ import { FakeKV } from './helpers/fake-kv';
 
 const NOW = 200_000_000;
 const DAY = 86_400_000;
-const OFF = { crisp: { enabled: false }, chatwoot: { enabled: false } };
-const ON = { crisp: { enabled: true, websiteId: '123e4567-e89b-12d3-a456-426614174000' },
-  chatwoot: { enabled: true, baseUrl: 'https://chat.example.com', websiteToken: 'AbC12345_x' } };
+const OFF = { crisp: { enabled: false } };
+const ON = { crisp: { enabled: true, websiteId: '123e4567-e89b-12d3-a456-426614174000' } };
 
 async function module(config: object, validatedAt = NOW): Promise<RegistryModuleSnapshot> {
   return { moduleId: 'support-widget', latest: { state: RegistryValidationState.VALID_ENABLED, enabled: true },
@@ -44,10 +43,10 @@ describe('GET /api/v1/config/support-widget', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('does not expose identifiers of disabled providers', async () => {
+  it('does not expose identifiers when Crisp is disabled', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW);
-    const kv = new FakeKV(); await put(kv, await module({ crisp: ON.crisp, chatwoot: { enabled: false } }));
-    expect(await (await request(kv)).response.json()).toMatchObject({ data: { crisp: ON.crisp, chatwoot: { enabled: false } } });
+    const kv = new FakeKV(); await put(kv, await module(OFF));
+    expect(await (await request(kv)).response.json()).toEqual({ ok: true, data: OFF, requestId: 'request-id' });
   });
 
   it.each([
@@ -62,7 +61,7 @@ describe('GET /api/v1/config/support-widget', () => {
     ['stale LKG', async () => { const kv = new FakeKV(); await put(kv, await module(ON, NOW - DAY - 1)); return kv; }],
     ['future LKG', async () => { const kv = new FakeKV(); await put(kv, await module(ON, NOW + 1), NOW + 1); return kv; }],
     ['KV read failure', async () => { const kv = new FakeKV(); kv.get = async () => { throw new Error('KV unavailable'); }; return kv; }],
-  ])('returns both providers disabled for %s', async (_case, setup) => {
+  ])('returns Crisp disabled for %s', async (_case, setup) => {
     vi.useFakeTimers(); vi.setSystemTime(NOW);
     const { response, fetcher } = await request(await setup());
     expect(response.status).toBe(200);
@@ -87,5 +86,14 @@ describe('GET /api/v1/config/support-widget', () => {
       modules: [await module({ ...ON, injectedScript: 'https://evil.example/x.js' })] });
     kv.values.set(REGISTRY_SNAPSHOT_KEY, canonicalRegistryJson(snapshot));
     expect(await (await request(kv)).response.json()).toMatchObject({ data: OFF });
+  });
+
+  it('rejects an old snapshot carrying Chatwoot even when Crisp is enabled', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW);
+    const kv = new FakeKV();
+    const snapshot = await createRegistryOperationalSnapshot({ generatedAt: NOW,
+      modules: [await module({ ...ON, chatwoot: { enabled: false } })] });
+    kv.values.set(REGISTRY_SNAPSHOT_KEY, canonicalRegistryJson(snapshot));
+    expect(await (await request(kv)).response.json()).toEqual({ ok: true, data: OFF, requestId: 'request-id' });
   });
 });

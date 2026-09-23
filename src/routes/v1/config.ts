@@ -103,9 +103,6 @@ configRouter.get('/support-widget', async (c) => {
           crisp: result.config.crisp.enabled
             ? { enabled: true, websiteId: result.config.crisp.websiteId }
             : { enabled: false },
-          chatwoot: result.config.chatwoot.enabled
-            ? { enabled: true, baseUrl: result.config.chatwoot.baseUrl, websiteToken: result.config.chatwoot.websiteToken }
-            : { enabled: false },
         };
       }
     } catch {

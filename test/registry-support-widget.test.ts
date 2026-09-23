@@ -14,7 +14,6 @@ import { FakeKV } from './helpers/fake-kv';
 const websiteId = '123e4567-e89b-12d3-a456-426614174000';
 const enabledConfig = {
   crisp: { enabled: true, websiteId },
-  chatwoot: { enabled: true, baseUrl: 'https://chat.example.com', websiteToken: 'AbC12345_x' },
 };
 
 function body(config: unknown, enabled = true): string {
@@ -43,42 +42,27 @@ describe('M10 support-widget Registry', () => {
     expect(SUPPORT_WIDGET_MAX_STALE_AGE_SECONDS).toBe(86_400);
     expect(registryOperationalDefinitions.at(-1)).toBe(supportWidgetOperationalDefinition);
     expect(supportWidgetOperationalDefinition.projectSnapshot(enabledConfig)).toEqual(enabledConfig);
-    expect(supportWidgetOperationalDefinition.projectSnapshot({ crisp: { enabled: false }, chatwoot: { enabled: false } })).toEqual({
-      crisp: { enabled: false }, chatwoot: { enabled: false },
+    expect(supportWidgetOperationalDefinition.projectSnapshot({ crisp: { enabled: false } })).toEqual({
+      crisp: { enabled: false },
     });
   });
 
-  it('accepts independently enabled/disabled providers with canonical HTTPS origin', () => {
-    expect(supportWidgetConfigSchema.parse({ crisp: { enabled: false }, chatwoot: {
-      enabled: true, baseUrl: 'https://CHAT.example.com/', websiteToken: 'AbC12345_x',
-    } })).toEqual({ crisp: { enabled: false }, chatwoot: {
-      enabled: true, baseUrl: 'https://chat.example.com', websiteToken: 'AbC12345_x',
-    } });
-    expect(supportWidgetConfigSchema.parse({ crisp: enabledConfig.crisp, chatwoot: { enabled: false } })).toEqual({
-      crisp: enabledConfig.crisp, chatwoot: { enabled: false },
-    });
+  it('accepts Crisp enabled and disabled without adding another provider', () => {
+    expect(supportWidgetConfigSchema.parse(enabledConfig)).toEqual(enabledConfig);
+    expect(supportWidgetConfigSchema.parse({ crisp: { enabled: false } })).toEqual({ crisp: { enabled: false } });
   });
 
   const invalidConfigs: Array<[string, unknown]> = [
-    ['missing provider', { crisp: { enabled: false } }],
+    ['missing Crisp', {}],
+    ['old Chatwoot config', { ...enabledConfig, chatwoot: { enabled: false } }],
+    ['Chatwoot enabled', { ...enabledConfig, chatwoot: { enabled: true, baseUrl: 'https://chat.example.com', websiteToken: 'AbC12345_x' } }],
     ['unknown provider', { ...enabledConfig, custom: { enabled: true } }],
     ['unknown script field', { ...enabledConfig, crisp: { ...enabledConfig.crisp, script: 'https://evil.example/x.js' } }],
     ['string enabled', { ...enabledConfig, crisp: { enabled: 'true', websiteId } }],
     ['missing enabled value', { ...enabledConfig, crisp: { enabled: true } }],
     ['disabled retaining website ID', { ...enabledConfig, crisp: { enabled: false, websiteId } }],
     ['invalid website ID', { ...enabledConfig, crisp: { enabled: true, websiteId: 'not-a-uuid' } }],
-    ['empty token', { ...enabledConfig, chatwoot: { ...enabledConfig.chatwoot, websiteToken: '' } }],
-    ['token with markup', { ...enabledConfig, chatwoot: { ...enabledConfig.chatwoot, websiteToken: '<script>x</script>' } }],
-    ['token with slash', { ...enabledConfig, chatwoot: { ...enabledConfig.chatwoot, websiteToken: 'AbC12345/path' } }],
-    ['disabled retaining token', { ...enabledConfig, chatwoot: { ...enabledConfig.chatwoot, enabled: false } }],
-    ...['http://chat.example.com', 'https://u:p@chat.example.com', 'https://chat.example.com/x',
-      'https://chat.example.com?x=1', 'https://chat.example.com/#x', 'https://localhost',
-      'https://chat.local', 'https://chat.internal', 'https://chat.test',
-      'https://127.0.0.1', 'https://[::1]', 'https://chat.example.com:8443',
-      'https://chat.example.com.', 'https://chat..example.com',
-      'https://chat.example.com\\@evil.example', ' https://chat.example.com',
-    ].map((baseUrl): [string, unknown] => [`invalid Chatwoot origin ${baseUrl}`, { ...enabledConfig,
-      chatwoot: { ...enabledConfig.chatwoot, baseUrl } }]),
+    ['script URL', { ...enabledConfig, scriptUrl: 'https://example.com/widget.js' }],
   ];
 
   it.each(invalidConfigs)('rejects %s', (_case, config) => {
