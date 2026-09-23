@@ -41,6 +41,20 @@ export const EMPTY_RUNTIME_SETTINGS_CONFIG: RuntimeSettingsConfig = {
   footerText: null,
 };
 
+export type SupportWidgetConfig = {
+  crisp: { enabled: false } | { enabled: true; websiteId: string };
+};
+
+export const DISABLED_SUPPORT_WIDGET_CONFIG: SupportWidgetConfig = {
+  crisp: { enabled: false },
+};
+
+export interface SupportWidgetConfigSuccessResponse {
+  ok: true;
+  data: SupportWidgetConfig;
+  requestId: string;
+}
+
 export interface OnboardingConfigSuccessResponse {
   ok: true;
   data: OnboardingConfig;
