@@ -13,6 +13,7 @@
 | `GET /api/v1/config/onboarding`        | No             | `guest/comm/config`             |
 | `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
 | `GET /api/v1/config/runtime`           | No             | Registry operational snapshot   |
+| `GET /api/v1/config/support-widget`    | No             | Registry operational snapshot   |
 | `GET /api/v1/announcements`            | Optional Bearer | Registry operational snapshot  |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
@@ -2144,3 +2145,30 @@ Success / fallback 均返回 HTTP 200：
 `runtime-settings` 使用 code-owned `STALE_TOLERANT` policy，最大 LKG age 为 `86400` 秒。`age <= 86400` 时可返回 safe LKG；超过边界、future/temporally-invalid snapshot、binding 缺失、snapshot missing/corrupt、module absent/disabled/unavailable 或没有 usable LKG 时均返回 all-null DTO。Latest validation invalid 但 retained LKG 仍在 24 小时内时可继续返回该 LKG；内部 validation/health/freshness/error reason 不进入 Public response。
 
 Public DTO 只包含上述七个字段。Raw Registry body/config、enabled/latest validation state、health/code、freshness class、age、timestamps、source metadata/fingerprint、secret/ref、Admin/V2Board origin/path、KV key 与 Control Plane failure 均不公开。
+
+## M10 Support Widget Configuration
+
+```http
+GET /api/v1/config/support-widget
+```
+
+匿名、无需 Bearer。Success 与安全停用 fallback 均为 HTTP 200，`Cache-Control: no-store`，沿用 `{ok,data,requestId}` envelope。完整停用响应：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "crisp": { "enabled": false },
+    "chatwoot": { "enabled": false }
+  },
+  "requestId": "request-id"
+}
+```
+
+启用时，`crisp` 为 `{ "enabled": true, "websiteId": "<public Crisp Website ID>" }`；`chatwoot` 为 `{ "enabled": true, "baseUrl": "https://chat.example.com", "websiteToken": "<public website Inbox token>" }`。两者可分别启用；这不决定前端同时显示策略。停用对象仅含 `enabled:false`，不返回残留 ID、URL 或 token。`websiteToken` 是 Chatwoot 网站 Widget 的公开 bootstrap 标识，不是 Agent API Token 或管理员密钥。
+
+Reserved Knowledge module ID `support-widget`，schema v1，public exposure；`config` 必须同时含严格的 `crisp` 和 `chatwoot` 对象。各自的 `enabled` 必须是 boolean。启用的 Crisp Website ID 必须为 UUID 形式；启用的 Chatwoot website token 必须为 8 至 128 位 ASCII 字母、数字、`_` 或 `-`；`baseUrl` 必须为无 userinfo、path、query、fragment、显式 port 的 HTTPS DNS origin，拒绝本地/保留后缀、IP literal 和未知字段。停用 Provider 不允许附带 bootstrap 字段。任一 Provider 配置不合法使该 module 校验失效，不影响无关有效 Registry module；不能把 URL/script 文本或其他密钥作为公开配置。
+
+本 module 使用现有 `REGISTRY_KV` safe snapshot、code-owned `STALE_TOLERANT` 86400 秒 freshness bound。公开读取还要求最新验证状态为 `VALID_ENABLED`：无 KV、读取故障、snapshot 缺失/损坏/过期、module absent/disabled、最新配置 invalid 或没有可用快照时返回两个 Provider 均停用，即使 invalid 状态仍保留旧 LKG。显式 module disabled/absent 清除旧 LKG。Cloudflare KV eventual consistency 不能保证跨边缘节点即时全局停用；紧急撤销不能只依赖更新 Registry。
+
+Browser 请求不触发 Admin/Control Plane、Registry refresh、V2Board、Crisp 或 Chatwoot 的网络请求。Aureole Consumer 应只按 Provider 固定的官方 Bootstrap 方式加载：Crisp 使用已审查的 SDK，Chatwoot 仅在可信部署 origin 上拼接 Provider 固定 `/packs/js/sdk.js` 路径；不得将 `baseUrl` 用作任意脚本 URL、开放的脚本来源或身份关联授权。HTTPS/格式校验不能证明域名可信、TLS 内容安全或第三方脚本不会访问页面环境；启用前需由 Owner 审核 Chatwoot 部署域名，并制定 CSP/脚本策略。Solution 不自动发送用户邮箱、订单或订阅数据，不验证真实 Widget 浏览器加载。
