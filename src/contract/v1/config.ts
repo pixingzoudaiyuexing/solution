@@ -49,6 +49,22 @@ export const DISABLED_SUPPORT_WIDGET_CONFIG: SupportWidgetConfig = {
   crisp: { enabled: false },
 };
 
+export interface PromotionUiConfig {
+  showCouponEntry: boolean;
+  annualPrefillCode: string | null;
+}
+
+export const DEFAULT_PROMOTION_UI_CONFIG: PromotionUiConfig = {
+  showCouponEntry: true,
+  annualPrefillCode: null,
+};
+
+export interface PromotionUiConfigSuccessResponse {
+  ok: true;
+  data: PromotionUiConfig;
+  requestId: string;
+}
+
 export interface SupportWidgetConfigSuccessResponse {
   ok: true;
   data: SupportWidgetConfig;

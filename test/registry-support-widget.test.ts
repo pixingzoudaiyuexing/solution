@@ -40,7 +40,7 @@ describe('M10 support-widget Registry', () => {
     expect(supportWidgetRegistryDefinition).toMatchObject({ moduleId: 'support-widget', schemaVersion: 1, maximumExposure: 'public' });
     expect(supportWidgetOperationalDefinition.freshness).toEqual({ class: 'STALE_TOLERANT', maxStaleAgeSeconds: 86_400 });
     expect(SUPPORT_WIDGET_MAX_STALE_AGE_SECONDS).toBe(86_400);
-    expect(registryOperationalDefinitions.at(-1)).toBe(supportWidgetOperationalDefinition);
+    expect(registryOperationalDefinitions.find((definition) => definition.registryDefinition.moduleId === 'support-widget')).toBe(supportWidgetOperationalDefinition);
     expect(supportWidgetOperationalDefinition.projectSnapshot(enabledConfig)).toEqual(enabledConfig);
     expect(supportWidgetOperationalDefinition.projectSnapshot({ crisp: { enabled: false } })).toEqual({
       crisp: { enabled: false },

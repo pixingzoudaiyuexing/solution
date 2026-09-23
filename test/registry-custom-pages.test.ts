@@ -33,6 +33,7 @@ describe('REG-M02 Custom Pages definition', () => {
       'subscription-delivery',
       'announcements',
       'support-widget',
+      'promotion-ui',
     ]);
   });
 
