@@ -13,7 +13,6 @@
 | `GET /api/v1/config/onboarding`        | No             | `guest/comm/config`             |
 | `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
 | `GET /api/v1/config/runtime`           | No             | Registry operational snapshot   |
-| `GET /api/v1/config/promotion-ui`      | No             | Registry operational snapshot   |
 | `GET /api/v1/announcements`            | Optional Bearer | Registry operational snapshot  |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
@@ -2145,24 +2144,3 @@ Success / fallback 均返回 HTTP 200：
 `runtime-settings` 使用 code-owned `STALE_TOLERANT` policy，最大 LKG age 为 `86400` 秒。`age <= 86400` 时可返回 safe LKG；超过边界、future/temporally-invalid snapshot、binding 缺失、snapshot missing/corrupt、module absent/disabled/unavailable 或没有 usable LKG 时均返回 all-null DTO。Latest validation invalid 但 retained LKG 仍在 24 小时内时可继续返回该 LKG；内部 validation/health/freshness/error reason 不进入 Public response。
 
 Public DTO 只包含上述七个字段。Raw Registry body/config、enabled/latest validation state、health/code、freshness class、age、timestamps、source metadata/fingerprint、secret/ref、Admin/V2Board origin/path、KV key 与 Control Plane failure 均不公开。
-
-## M11 Promotion UI Configuration
-
-```http
-GET /api/v1/config/promotion-ui
-```
-
-当前 source tree 共 52 条 `/api/v1` Public routes。本接口匿名、无需 Bearer，HTTP 200，`Content-Type: application/json`，`Cache-Control: no-store`，沿用 `{ok,data,requestId}` envelope。`data` 严格只有两个字段：
-
-```json
-{
-  "showCouponEntry": true,
-  "annualPrefillCode": null
-}
-```
-
-Reserved Knowledge module ID 为 `promotion-ui`，schema v1，code-owned maximum exposure 为 public；`showCouponEntry` 必须是明确 boolean，`annualPrefillCode` 可省略、为 null，或为 trim 后长度 1–255 的公开优惠码字符串。字符串不接受空白字符、控制字符或 `<`/`>`，配置对象及 snapshot 拒绝未知字段（包括旧自动选券字段）。配置成功不证明优惠券业务有效；活动码进入公开 DTO 时任何访问者都可读取复制，禁止放入专属私密券或 Secret。
-
-当 `showCouponEntry=true` 时，`annualPrefillCode` 为有效配置码或 `null`；当 `showCouponEntry=false` 时，公开 DTO 始终为 `{ "showCouponEntry": false, "annualPrefillCode": null }`，safe snapshot projector 也不持久化隐藏状态下的旧预填码。缺少 binding、module absent/disabled、最新状态 invalid、snapshot missing/corrupt/stale、KV 读取失败或无可用 LKG 均返回兼容默认值 `{ "showCouponEntry": true, "annualPrefillCode": null }`。读取仅允许 latest `VALID_ENABLED`；旧 LKG 即使仍在 code-owned 24 小时 `STALE_TOLERANT` bound 内，也不得在最新配置 invalid 时继续公开旧码。包含已退役未知模块的历史 snapshot 会整体 fail closed，后续正式 scheduled refresh 会按当前注册模块集合重建派生状态。KV 最终一致性不保证即时全局开关同步。响应不包含 raw Knowledge、Registry metadata、Secret、用户或订单数据；浏览器 GET 不访问 Admin、V2Board、优惠券 API、订单 API，也不触发 refresh。
-
-后续 Aureole Consumer Contract（本任务不修改 Aureole）：入口关闭则隐藏输入框及验证按钮，不预填；入口开启则保留手动输入、修改、清空和主动验证。只有 `billingPeriod='year'` 且配置码非空时可在可编辑输入框预填；`month`、`quarter`、`halfYear`、`twoYears`、`threeYears`、`oneTime` 不自动预填，但入口开启时仍可手动输入。用户主动编辑或清空后普通重渲染不得回填，异步响应不得覆盖用户输入；账期切换不得沿用上一账期的验证状态或把年付预填码提交给非年付订单。预填不自动调用 `POST /api/v1/promotions/validate`，必须由用户点击验证。V2Board 明确判券无效时清空无效码及旧验证结果、恢复原价展示、不立即重新预填、允许无券购买；网络/超时/未知错误不等于券明确无效。建单时 V2Board 仍是最终权威；带券订单被明确拒绝后应提示按原价重新确认，未经用户确认不得自动提交第二笔无券订单。`showCouponEntry=false` 不禁用现有合法的验券或带券订单 API，Solution 不自动选券、验券、注入优惠码、重试建单或计算最终价格。

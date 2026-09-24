@@ -41,22 +41,6 @@ export const EMPTY_RUNTIME_SETTINGS_CONFIG: RuntimeSettingsConfig = {
   footerText: null,
 };
 
-export interface PromotionUiConfig {
-  showCouponEntry: boolean;
-  annualPrefillCode: string | null;
-}
-
-export const DEFAULT_PROMOTION_UI_CONFIG: PromotionUiConfig = {
-  showCouponEntry: true,
-  annualPrefillCode: null,
-};
-
-export interface PromotionUiConfigSuccessResponse {
-  ok: true;
-  data: PromotionUiConfig;
-  requestId: string;
-}
-
 export interface OnboardingConfigSuccessResponse {
   ok: true;
   data: OnboardingConfig;
