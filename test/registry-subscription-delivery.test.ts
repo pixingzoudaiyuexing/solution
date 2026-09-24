@@ -27,7 +27,7 @@ describe('REG-M04 subscription delivery definition', () => {
     });
     expect(SUBSCRIPTION_DELIVERY_MAX_STALE_AGE_SECONDS).toBe(86_400);
     expect(registryOperationalDefinitions.map((item) => item.registryDefinition.moduleId)).toEqual([
-      'runtime-settings', 'custom-pages', 'subscription-delivery', 'announcements', 'promotion-ui',
+      'runtime-settings', 'custom-pages', 'subscription-delivery', 'announcements',
     ]);
   });
 
