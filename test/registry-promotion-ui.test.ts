@@ -103,7 +103,7 @@ describe('M11 promotion-ui Registry', () => {
     expect(state.status).toBe('valid');
     if (state.status === 'valid') {
       expect(state.snapshot.modules.find((module) => module.moduleId === 'promotion-ui')?.lkg?.config).toEqual(enabledConfig);
-      expect(state.snapshot.modules.find((module) => module.moduleId === 'support-widget')?.latest.state).toBe('ABSENT');
+      expect(state.snapshot.modules.some((module) => module.moduleId === 'support-widget')).toBe(false);
     }
     await refresh(body({ ...enabledConfig, autoApply: true }), 20_000);
     state = await loadRegistryOperationalSnapshot(kv.binding(), registryOperationalDefinitions);

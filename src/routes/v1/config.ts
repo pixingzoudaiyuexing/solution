@@ -8,16 +8,13 @@ import type {
   OnboardingConfigSuccessResponse,
   PromotionUiConfig,
   PromotionUiConfigSuccessResponse,
-  SupportWidgetConfig,
-  SupportWidgetConfigSuccessResponse,
 } from '../../contract/v1/config';
-import { DEFAULT_PROMOTION_UI_CONFIG, DISABLED_SUPPORT_WIDGET_CONFIG, EMPTY_RUNTIME_SETTINGS_CONFIG } from '../../contract/v1/config';
+import { DEFAULT_PROMOTION_UI_CONFIG, EMPTY_RUNTIME_SETTINGS_CONFIG } from '../../contract/v1/config';
 import { requestId } from '../../http/request-id';
 import { registryOperationalDefinitions } from '../../registry/definitions';
 import { RegistryValidationState } from '../../registry/kernel';
 import { runtimeSettingsOperationalDefinition } from '../../registry/modules/runtime-settings';
 import { promotionUiOperationalDefinition } from '../../registry/modules/promotion-ui';
-import { supportWidgetOperationalDefinition } from '../../registry/modules/support-widget';
 import { readRegistryModuleSnapshot } from '../../registry/operational';
 import {
   requireAuthorization,
@@ -87,32 +84,6 @@ configRouter.get('/runtime', async (c) => {
     data,
     requestId: requestId(c),
   };
-  c.header('Cache-Control', 'no-store');
-  return c.json(response);
-});
-
-configRouter.get('/support-widget', async (c) => {
-  let data: SupportWidgetConfig = DISABLED_SUPPORT_WIDGET_CONFIG;
-  if (c.env.REGISTRY_KV) {
-    try {
-      const result = await readRegistryModuleSnapshot(
-        c.env.REGISTRY_KV,
-        supportWidgetOperationalDefinition,
-        Date.now(),
-        registryOperationalDefinitions
-      );
-      if (result.status === 'available' && result.latestState === RegistryValidationState.VALID_ENABLED) {
-        data = {
-          crisp: result.config.crisp.enabled
-            ? { enabled: true, websiteId: result.config.crisp.websiteId }
-            : { enabled: false },
-        };
-      }
-    } catch {
-      // A failed KV read must not activate a third-party widget.
-    }
-  }
-  const response: SupportWidgetConfigSuccessResponse = { ok: true, data, requestId: requestId(c) };
   c.header('Cache-Control', 'no-store');
   return c.json(response);
 });

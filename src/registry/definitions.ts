@@ -4,7 +4,6 @@ import { customPagesOperationalDefinition } from './modules/custom-pages';
 import { promotionUiOperationalDefinition } from './modules/promotion-ui';
 import { runtimeSettingsOperationalDefinition } from './modules/runtime-settings';
 import { subscriptionDeliveryOperationalDefinition } from './modules/subscription-delivery';
-import { supportWidgetOperationalDefinition } from './modules/support-widget';
 
 export const registryOperationalDefinitions: readonly RegistryOperationalModuleDefinition<
   any,
@@ -14,6 +13,5 @@ export const registryOperationalDefinitions: readonly RegistryOperationalModuleD
   customPagesOperationalDefinition,
   subscriptionDeliveryOperationalDefinition,
   announcementsOperationalDefinition,
-  supportWidgetOperationalDefinition,
   promotionUiOperationalDefinition,
 ];
