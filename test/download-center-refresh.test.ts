@@ -859,4 +859,28 @@ describe('Download Center derived LKG refresh', () => {
     expect(new URL(String(url)).hostname).toBe('api.github.com');
     expect(new Headers((init as RequestInit).headers).has('authorization')).toBe(false);
   });
+
+  it('uses the deployment GitHub token without persisting it', async () => {
+    const now = 1_000_000;
+    const token = 'GITHUB_TOKEN_SENTINEL';
+    const kv = await kvWithConfig(snapshot(), now);
+    const fetcher = canonicalFetcher();
+
+    await refreshDownloadCenterResolvedState(
+      { ...env(kv), GITHUB_API_TOKEN: token },
+      { fetcher, now: () => now }
+    );
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    const headers = new Headers(
+      (fetcher.mock.calls[0][1] as RequestInit).headers
+    );
+    expect(headers.get('authorization')).toBe(`Bearer ${token}`);
+    for (const value of kv.values.values()) {
+      expect(value).not.toContain(token);
+    }
+    expect(
+      JSON.stringify(await readAvailableDownloads(kv.binding(), now))
+    ).not.toContain(token);
+  });
 });

@@ -185,7 +185,11 @@ export async function refreshDownloadCenterResolvedState(
       : [];
   const adapter =
     options.releaseAdapter ??
-    new GitHubReleasesAdapter(options.fetcher ?? fetch, options.timeoutMs);
+    new GitHubReleasesAdapter(
+      options.fetcher ?? fetch,
+      options.timeoutMs,
+      env.GITHUB_API_TOKEN
+    );
   const diagnosticNow = options.diagnosticNow ?? Date.now;
   const elapsedNow =
     options.elapsedNow ??

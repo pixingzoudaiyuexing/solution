@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   GITHUB_API_ORIGIN,
+  GITHUB_API_TOKEN_MAX_LENGTH,
   GITHUB_RELEASE_MAX_ASSETS,
   GITHUB_RELEASE_MAX_BODY_BYTES,
   GitHubReleaseError,
@@ -80,6 +81,7 @@ describe('fixed GitHub Releases adapter', () => {
     expect(init.redirect).toBe('manual');
     expect(new Headers(init.headers).get('accept')).toBe('application/vnd.github+json');
     expect(new Headers(init.headers).get('user-agent')).toBe('solution-download-center/1.0');
+    expect(new Headers(init.headers).has('authorization')).toBe(false);
     expect(result).toEqual({
       repository: { owner: 'owner', repo: 'repo' },
       tagName: 'v1.2.3',
@@ -94,6 +96,38 @@ describe('fixed GitHub Releases adapter', () => {
       ],
     });
     expect(JSON.stringify(result)).not.toContain('RAW_GITHUB_SENTINEL');
+  });
+
+  it('adds a deployment-owned GitHub bearer token without exposing it in the result', async () => {
+    const token = 'GITHUB_TOKEN_SENTINEL';
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(release()));
+    const result = await new GitHubReleasesAdapter(
+      fetcher,
+      undefined,
+      token
+    ).latest('owner/repo');
+
+    const init = fetcher.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${token}`);
+    expect(JSON.stringify(result)).not.toContain(token);
+  });
+
+  it.each([
+    '',
+    ' ',
+    'token value',
+    'token\nvalue',
+    '令牌',
+    'x'.repeat(GITHUB_API_TOKEN_MAX_LENGTH + 1),
+  ])('rejects an invalid GitHub API token without echoing it', (token) => {
+    expect(() => new GitHubReleasesAdapter(fetch, undefined, token)).toThrow(
+      'Invalid GitHub API token'
+    );
+    try {
+      new GitHubReleasesAdapter(fetch, undefined, token);
+    } catch (error) {
+      expect(String(error)).toBe('Error: Invalid GitHub API token');
+    }
   });
 
   it('classifies a non-timeout fetch rejection without raw Error metadata', async () => {

@@ -120,7 +120,7 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Task state: `PASS / COMPLETE / CLOSED / RE-FROZEN`. Reviewed implementation anchor: `d97da44248aa1abff979815cbc51e9158f276e46`; Gemini post-code review: `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`; merge/main anchor: `24e58a907f9595edb1551976122e3c920b859a9e`. Production remains not deployed.
 - Registry module: `download-center`, public exposure, schema v1, maximum 50 items and 8 providers, fixed `release=latest`, strict `owner/repo`, bounded literal matcher, refresh `1..168` hours and max stale `refreshHours..168` hours.
 - Provider model: module-level `github-url-prefix`; exactly two distinct enabled default provider IDs. Public DTO emits exactly two ordered `downloads[]` entries and no standalone original GitHub URL or obsolete `downloadUrl`/`mirrors` fields.
-- Fixed provider boundary: `https://api.github.com/repos/{owner}/{repo}/releases/latest`, 10-second timeout, manual redirects, 512 KiB response bound, 100 assets, no Registry-selected URL and no GitHub token implementation.
+- Fixed provider boundary: `https://api.github.com/repos/{owner}/{repo}/releases/latest`, 10-second timeout, manual redirects, 512 KiB response bound, 100 assets, no Registry-selected URL; the current local candidate adds only an optional deployment-owned GitHub token.
 - Derived key remains `registry:download-center:resolved:v1`; payload schema version is `2`, and old v1 payload fails closed. Normalized public provider-prefixed metadata plus effective config fingerprint and attempt/resolution/expiry timestamps only. Raw Registry/GitHub payload, provider base config, credentials and business/user data are excluded.
 - Public API: anonymous `GET /api/v1/downloads`, HTTP 200 neutral collection, `Cache-Control: no-store`; unavailable items are omitted and missing/corrupt/expired state returns `items: []` without public cause leakage.
 - Scheduled boundary remains one `waitUntil`, internally sequencing Registry refresh and M03 resolution. Per-run normalized repository Promise cache prevents duplicate GitHub calls; canonical seven items resolve three repositories. Browser data plane makes no Admin/GitHub/V2Board/provider request.
@@ -130,19 +130,19 @@ Reserved Knowledge Registry -> Solution -> Aureole
 
 ## REG-M03 GitHub Diagnostics Runtime
 
-- Runtime anchor: `1d6e00c907dc7b61b50ce87be625fb28d34f44a9`; TEST Worker version: `c594e348-bff9-4f37-993a-65ece95dac63`; Production NOT DEPLOYED.
+- Runtime anchor: `1814e0fe1c97684a70db2624f466b2e629eaf6d2`; TEST Worker version: `cf3d3413-0b4e-4144-9c32-fd52e6d12a51`; Production NOT DEPLOYED.
 - Fixed internal key: `registry:download-center:diagnostic:v1`, schema v1, maximum 50 unique normalized repositories.
-- Current deployed classification includes `FETCH_REJECTED`, `HTTP_REDIRECT`, `HTTP_ERROR` and bounded actual status when a Response exists. A real TEST due run classified all three repositories as `FETCH_REJECTED`, `elapsedMs=0`, with no Response.
+- The receiver repair is runtime-confirmed through a real TEST due run reaching GitHub: all three repositories returned an actual HTTP 403 within 13..37 ms instead of synchronous `FETCH_REJECTED`. Fresh remained 0 and seven valid items used prior LKG.
 - Repository Promise dedup remains unchanged; one shared request produces one diagnostic result. Matcher failure after successful repository fetch remains repository `success`.
 - No-due run preserves the last useful diagnostic evidence. Diagnostic write failure is ignored and cannot alter resolved success, LKG fallback or Public API availability.
 - No raw GitHub/Registry/provider payload, response body/header, URL, secret, stack or error message is persisted. No Public diagnostic/health/debug route exists.
-- This candidate adds observability only; it does not identify or fix the scheduled GitHub root cause, change the 10-second timeout, add retry/token, or alter the Download Center public contract.
+- An isolated temporary Worker without Smart Placement received GitHub HTTP 200 with remaining unauthenticated core quota. The same probe with TEST-equivalent Smart Placement reproduced HTTP 403 with `x-ratelimit-limit=60`, `remaining=0`, resource `core`, and GitHub's explicit unauthenticated IP rate-limit message. The temporary Worker was deleted after evidence capture.
 
-## REG-M03 GitHub Fetch Receiver Fix Local Candidate
+## REG-M03 GitHub Rate-Limit Repair Local Candidate
 
 - State: local final repair candidate / mandatory Antigravity Gemini review pending / NOT MERGED / NOT PERSISTENTLY DEPLOYED.
-- Root cause: native Cloudflare/workerd fetch was stored as an adapter property and invoked as `this.fetcher(...)`, supplying the adapter as an invalid receiver and causing immediate `Illegal invocation`/`FETCH_REJECTED` before outbound I/O.
-- Evidence: actual local workerd with a valid data URL rejects method-style native fetch while bare and arrow-wrapper calls succeed; receiver-sensitive unit fixture reproduces the old class behavior; repaired production adapter successfully resolves a real GitHub release in local workerd.
-- Fix: constructor wraps default/injected fetch with an arrow and invokes the wrapper, preserving dependency injection while giving the underlying fetch a valid bare receiver.
-- Functional behavior remains unchanged: 10-second timeout, no retry/token, fixed endpoint/headers/manual redirect, dedup, matcher, provider output, LKG fallback, resolved schema v2 and Public API.
-- Real scheduled TEST confirmation of the final repair remains pending post-Gemini deployment gate.
+- Two-stage root cause: the receiver misuse caused the original synchronous failure; after that fix, the real TEST run hit HTTP 403 rate limiting, and a TEST-equivalent Smart Placement probe confirmed an exhausted IP-scoped unauthenticated 60-request core quota. Without deployment authentication, scheduled resolution depends on a shared egress quota.
+- Fix: preserve the receiver-safe fetch wrapper and accept optional validated `GITHUB_API_TOKEN` only from the Solution deployment environment, adding `Authorization: Bearer` to the fixed GitHub request. Missing token preserves current behavior; invalid token fails closed without echoing it.
+- Secret boundary: token is never selected by Registry/Browser and is excluded from Registry, resolved/diagnostic KV, Public DTO, logs and errors.
+- Functional behavior remains unchanged: 10-second timeout, no retry, fixed endpoint/manual redirect, dedup, matcher, provider output, LKG fallback, resolved schema v2 and Public API.
+- The candidate is not useful in TEST until a dedicated deployment-owned GitHub token is explicitly provisioned after review. No personal/local GitHub credential was copied.

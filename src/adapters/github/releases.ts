@@ -12,6 +12,7 @@ export const GITHUB_RELEASE_MAX_ASSETS = 100;
 export const GITHUB_RELEASE_MAX_TAG_LENGTH = 128;
 export const GITHUB_RELEASE_MAX_ASSET_NAME_LENGTH = 255;
 export const GITHUB_RELEASE_MAX_URL_LENGTH = 2048;
+export const GITHUB_API_TOKEN_MAX_LENGTH = 512;
 
 export type GitHubReleaseErrorCode =
   | 'TIMEOUT'
@@ -172,14 +173,29 @@ function releaseEndpoint(repository: GitHubRepositoryIdentity): string {
   return `${GITHUB_API_ORIGIN}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/latest`;
 }
 
+function githubAuthorizationHeader(token: string | undefined): string | undefined {
+  if (token === undefined) return undefined;
+  if (
+    token.length === 0 ||
+    token.length > GITHUB_API_TOKEN_MAX_LENGTH ||
+    !/^[\x21-\x7e]+$/.test(token)
+  ) {
+    throw new Error('Invalid GitHub API token');
+  }
+  return `Bearer ${token}`;
+}
+
 export class GitHubReleasesAdapter {
   private readonly fetcher: typeof fetch;
+  private readonly authorizationHeader: string | undefined;
 
   constructor(
     fetcher: typeof fetch = fetch,
-    private readonly timeoutMs = GITHUB_RELEASE_TIMEOUT_MS
+    private readonly timeoutMs = GITHUB_RELEASE_TIMEOUT_MS,
+    githubApiToken?: string
   ) {
     this.fetcher = (input, init) => fetcher(input, init);
+    this.authorizationHeader = githubAuthorizationHeader(githubApiToken);
     if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
       throw new Error('Invalid GitHub timeout');
     }
@@ -209,6 +225,9 @@ export class GitHubReleasesAdapter {
             Accept: 'application/vnd.github+json',
             'User-Agent': 'solution-download-center/1.0',
             'X-GitHub-Api-Version': '2022-11-28',
+            ...(this.authorizationHeader === undefined
+              ? {}
+              : { Authorization: this.authorizationHeader }),
           },
         }),
         timeoutPromise,
