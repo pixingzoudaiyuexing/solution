@@ -130,18 +130,19 @@ Reserved Knowledge Registry -> Solution -> Aureole
 
 ## REG-M03 GitHub Diagnostics Runtime
 
-- Runtime anchor: `e73ed87dea8c9d0dbf98854d36a238bc645981b2`; TEST Worker version: `c806fb1d-a5e0-4c29-ba40-09dc8f40fae3`; Production NOT DEPLOYED.
+- Runtime anchor: `1d6e00c907dc7b61b50ce87be625fb28d34f44a9`; TEST Worker version: `c594e348-bff9-4f37-993a-65ece95dac63`; Production NOT DEPLOYED.
 - Fixed internal key: `registry:download-center:diagnostic:v1`, schema v1, maximum 50 unique normalized repositories.
-- Current deployed classification records attempted repository identity, attemptedAt, bounded elapsedMs, success/error and strict adapter error code (`TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `INVALID_RESPONSE`, `RESPONSE_TOO_LARGE`, `UNEXPECTED`). A real TEST due run classified all three repositories as broad `UPSTREAM_ERROR`, which does not distinguish fetch rejection from HTTP redirect/other HTTP errors.
+- Current deployed classification includes `FETCH_REJECTED`, `HTTP_REDIRECT`, `HTTP_ERROR` and bounded actual status when a Response exists. A real TEST due run classified all three repositories as `FETCH_REJECTED`, `elapsedMs=0`, with no Response.
 - Repository Promise dedup remains unchanged; one shared request produces one diagnostic result. Matcher failure after successful repository fetch remains repository `success`.
 - No-due run preserves the last useful diagnostic evidence. Diagnostic write failure is ignored and cannot alter resolved success, LKG fallback or Public API availability.
 - No raw GitHub/Registry/provider payload, response body/header, URL, secret, stack or error message is persisted. No Public diagnostic/health/debug route exists.
 - This candidate adds observability only; it does not identify or fix the scheduled GitHub root cause, change the 10-second timeout, add retry/token, or alter the Download Center public contract.
 
-## REG-M03 GitHub Error Classification Local Candidate
+## REG-M03 GitHub Fetch Receiver Fix Local Candidate
 
-- State: local candidate / mandatory Antigravity Gemini review pending / NOT MERGED / NOT DEPLOYED.
-- Adds internal codes `FETCH_REJECTED`, `HTTP_REDIRECT` and `HTTP_ERROR`; retains `UPSTREAM_ERROR` only for existing diagnostic-v1 compatibility.
-- `HTTP_REDIRECT` requires bounded 300..399 `httpStatus`; `HTTP_ERROR` requires actual non-success/non-rate-limit status; `RATE_LIMITED` may retain 403/429. Non-Response classes persist no HTTP status.
-- Does not persist Error name/message/stack/cause, response body/header, URL or secret. Public API remains isolated and unchanged.
-- Functional handling remains throw -> existing LKG fallback. Timeout remains 10 seconds, no retry/token/endpoint/provider/refresh/resolved-schema change.
+- State: local final repair candidate / mandatory Antigravity Gemini review pending / NOT MERGED / NOT PERSISTENTLY DEPLOYED.
+- Root cause: native Cloudflare/workerd fetch was stored as an adapter property and invoked as `this.fetcher(...)`, supplying the adapter as an invalid receiver and causing immediate `Illegal invocation`/`FETCH_REJECTED` before outbound I/O.
+- Evidence: actual local workerd with a valid data URL rejects method-style native fetch while bare and arrow-wrapper calls succeed; receiver-sensitive unit fixture reproduces the old class behavior; repaired production adapter successfully resolves a real GitHub release in local workerd.
+- Fix: constructor wraps default/injected fetch with an arrow and invokes the wrapper, preserving dependency injection while giving the underlying fetch a valid bare receiver.
+- Functional behavior remains unchanged: 10-second timeout, no retry/token, fixed endpoint/headers/manual redirect, dedup, matcher, provider output, LKG fallback, resolved schema v2 and Public API.
+- Real scheduled TEST confirmation of the final repair remains pending post-Gemini deployment gate.

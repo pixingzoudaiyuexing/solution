@@ -42,6 +42,32 @@ async function expectError(
 }
 
 describe('fixed GitHub Releases adapter', () => {
+  it('wraps receiver-sensitive fetch injection as a bare call', async () => {
+    const receivers: unknown[] = [];
+    const receiverSensitiveFetch = function (
+      this: unknown,
+      _input: RequestInfo | URL,
+      _init?: RequestInit
+    ): Promise<Response> {
+      receivers.push(this);
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve(response(release()));
+    } as typeof fetch;
+
+    const oldHolder = { fetcher: receiverSensitiveFetch };
+    expect(() => oldHolder.fetcher('https://api.github.com')).toThrow(
+      'Illegal invocation'
+    );
+    receivers.length = 0;
+
+    await expect(
+      new GitHubReleasesAdapter(receiverSensitiveFetch).latest('owner/repo')
+    ).resolves.toMatchObject({ tagName: 'v1.2.3' });
+    expect(receivers).toEqual([undefined]);
+  });
+
   it('uses only the code-owned latest-release endpoint, manual redirects, and fixed headers', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(release()));
     const result = await new GitHubReleasesAdapter(fetcher).latest('owner/repo');

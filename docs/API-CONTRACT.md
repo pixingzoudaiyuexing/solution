@@ -1540,6 +1540,8 @@ Asset matching 对 filename 统一使用 case-insensitive literal comparison：p
 
 Scheduled path 在现有单一 `waitUntil` 内先执行 Registry refresh，再读取可用 `download-center` snapshot 并解析 due items。GitHub adapter 的 origin 固定为 `https://api.github.com`，path 固定为 `/repos/{owner}/{repo}/releases/latest`，validated owner/repo component 会 URL encode；timeout 为 10000 ms，`redirect: "manual"`，response body 最大 524288 bytes，assets 最多 100，tag 最长 128，asset filename 最长 255，URL 最长 2048。当前实现不使用 GitHub token。Selected `browser_download_url` 必须是无 userinfo/query/fragment 的 `https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}`。
 
+Cloudflare/workerd native fetch 必须使用 bare receiver。Adapter constructor 仍接受 injected fetch，但会将其包装为 arrow function，再由 adapter 调用 wrapper；底层 fetch 不再以 `GitHubReleasesAdapter` 实例作为 `this`。该 receiver fix 不改变任何 request URL、method、headers、redirect、timeout、body/asset bounds或 failure semantics。
+
 单次 scheduled resolution 使用 bounded in-memory normalized `owner/repo` Promise cache。多个 due items 共享 repository 时只发起一次 latest-release request；canonical seven-item run 最多请求三个 repositories，而不是七次。Repository failure 只影响引用该 repository 的 items，不阻断其他 repositories。Cache 不持久化，也不建立新的 repository authority。
 
 派生状态继续使用固定 key `registry:download-center:resolved:v1`，payload schema version 升为 `2`。旧 schema-v1 payload 被视为 corrupt/unavailable 并返回 empty collection，直到下一次 scheduled 安全重建。状态只保存 normalized public item（其中 URL 已是 provider-prefixed output）、effective config fingerprint、`lastAttemptAt`、`resolvedAt` 与 `expiresAt`；不保存 standalone original GitHub URL field、raw GitHub/Registry body、provider `baseUrl`、repository matcher、GitHub/V2Board credential、user/account/entitlement/subscription data 或 arbitrary provider payload。

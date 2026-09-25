@@ -173,10 +173,13 @@ function releaseEndpoint(repository: GitHubRepositoryIdentity): string {
 }
 
 export class GitHubReleasesAdapter {
+  private readonly fetcher: typeof fetch;
+
   constructor(
-    private readonly fetcher: typeof fetch = fetch,
+    fetcher: typeof fetch = fetch,
     private readonly timeoutMs = GITHUB_RELEASE_TIMEOUT_MS
   ) {
+    this.fetcher = (input, init) => fetcher(input, init);
     if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
       throw new Error('Invalid GitHub timeout');
     }
