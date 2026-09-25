@@ -5,6 +5,7 @@ import { strictCors } from './security/cors';
 import type { Env } from './config/env';
 import { refreshRegistryOperationalState } from './registry/refresh';
 import { subscriptionPublicRouter } from './routes/subscription-public';
+import { refreshDownloadCenterResolvedState } from './registry/download-center-refresh';
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -20,7 +21,12 @@ export function scheduled(
   env: Env,
   ctx: ExecutionContext
 ): void {
-  ctx.waitUntil(refreshRegistryOperationalState(env).then(() => undefined));
+  ctx.waitUntil(
+    (async () => {
+      await refreshRegistryOperationalState(env);
+      await refreshDownloadCenterResolvedState(env);
+    })()
+  );
 }
 
 const worker: ExportedHandler<Env> = {
