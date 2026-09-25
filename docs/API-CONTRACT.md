@@ -1411,7 +1411,7 @@ Registry module identity 是 `registry:announcements`，schema version 为 `1`�
 
 Item ID 必须为 stable ID；title 1-160 characters、body 1-4000 characters，均为 trim 后 pure text，拒绝 HTML-like `<`/`>`、控制字符和未知字段。每个 module 最多 100 items；sort 为 0-1000000 的整数。`enabled: false` item 不进入 safe snapshot。模块明确 disabled 或 absent 时会清除 LKG，route 返回 HTTP 200 empty `items`，不能重新显示旧公告。缺失、corrupt、unavailable 或超过 freshness bound 的 snapshot 同样返回 HTTP 200 empty `items`。当前实现不支持有效时间、placement、dismiss persistence、localized editing、富文本、audience group/plan/role rules、pagination、push/email/Telegram 或管理 CRUD。
 
-M12 是 additive v1 extension；M12 完成时 `/api/v1` source route count 为 `51`。REG-M03 Download Center 实现候选新增一个匿名 route，当前 source route count 为 `52`。
+M12 是 additive v1 extension；M12 完成时 `/api/v1` source route count 为 `51`。REG-M03 Download Center 已新增一个匿名 route，当前 source route count 为 `52`。
 
 ### REG-M03 Download Center
 

@@ -9,7 +9,7 @@ Gemini final review: PASS (BLOCKER: 0, HIGH: 0)
 A2: PASS / COMPLETE / CLOSED / RE-FROZEN
 Reviewed A2 runtime/code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
 Gemini A2 follow-up review: PASS (BLOCKER: 0, HIGH: 0)
-Public routes: 52 (including REG-M03 implementation candidate)
+Public routes: 52 (including REG-M03 Download Center)
 Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
@@ -22,7 +22,7 @@ Gemini A3 post-code review: PASS (BLOCKER: 0, HIGH: 0, MEDIUM: 0, LOW: 0)
 A3 Production KV namespace / binding: NOT PROVISIONED
 A3 Production Cron: NOT ACTIVATED
 A4: NOT STARTED / NOT AUTHORIZED
-REG-M03 Download Center: IMPLEMENTATION CANDIDATE / MANDATORY GEMINI REVIEW PENDING
+REG-M03 Download Center: PASS / COMPLETE / CLOSED / RE-FROZEN
 REG-M03 Production deployment: NOT AUTHORIZED / NOT DEPLOYED
 ```
 
@@ -115,9 +115,9 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - State: `PASS / COMPLETE / CLOSED / RE-FROZEN`; Production remains `NOT AUTHORIZED / NOT DEPLOYED`.
 - M05 and REG-M07 remain `NOT IMPLEMENTED`; Aureole migration and CF-02 cleanup remain `NOT PERFORMED / NOT AUTHORIZED`; V2Board remains unchanged.
 
-## REG-M03 Download Center Implementation Candidate
+## REG-M03 Download Center Closure
 
-- Task state: implementation and local verification candidate only; mandatory Gemini post-code review remains required before merge/deployment.
+- Task state: `PASS / COMPLETE / CLOSED / RE-FROZEN`. Reviewed implementation anchor: `d97da44248aa1abff979815cbc51e9158f276e46`; Gemini post-code review: `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`; merge/main anchor: `24e58a907f9595edb1551976122e3c920b859a9e`. Production remains not deployed.
 - Registry module: `download-center`, public exposure, schema v1, maximum 50 items and 8 providers, fixed `release=latest`, strict `owner/repo`, bounded literal matcher, refresh `1..168` hours and max stale `refreshHours..168` hours.
 - Provider model: module-level `github-url-prefix`; exactly two distinct enabled default provider IDs. Public DTO emits exactly two ordered `downloads[]` entries and no standalone original GitHub URL or obsolete `downloadUrl`/`mirrors` fields.
 - Fixed provider boundary: `https://api.github.com/repos/{owner}/{repo}/releases/latest`, 10-second timeout, manual redirects, 512 KiB response bound, 100 assets, no Registry-selected URL and no GitHub token implementation.
