@@ -208,6 +208,7 @@ describe('GET /api/v1/downloads', () => {
       'health',
       'diagnostic',
       'errorCode',
+      'httpStatus',
       'elapsedMs',
       'attemptedAt',
     ]) {

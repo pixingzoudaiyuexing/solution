@@ -12,6 +12,9 @@ export const DOWNLOAD_CENTER_DIAGNOSTIC_MAX_ELAPSED_MS = 300_000;
 export const downloadCenterDiagnosticErrorCodeSchema = z.enum([
   'TIMEOUT',
   'RATE_LIMITED',
+  'FETCH_REJECTED',
+  'HTTP_REDIRECT',
+  'HTTP_ERROR',
   'UPSTREAM_ERROR',
   'INVALID_RESPONSE',
   'RESPONSE_TOO_LARGE',
@@ -29,6 +32,14 @@ const repositorySchema = z
   .min(3)
   .max(140)
   .refine((value) => normalizedGitHubRepositoryKey(value) === value);
+const httpStatusSchema = z.number().int().min(100).max(599);
+
+const repositoryDiagnosticBase = {
+  repository: repositorySchema,
+  attemptedAt: timestampSchema,
+  elapsedMs: elapsedSchema,
+  status: z.literal('error'),
+};
 
 const successDiagnosticSchema = z
   .object({
@@ -39,20 +50,55 @@ const successDiagnosticSchema = z
   })
   .strict();
 
-const errorDiagnosticSchema = z
+const nonHttpErrorDiagnosticSchema = z
   .object({
-    repository: repositorySchema,
-    attemptedAt: timestampSchema,
-    elapsedMs: elapsedSchema,
-    status: z.literal('error'),
-    errorCode: downloadCenterDiagnosticErrorCodeSchema,
+    ...repositoryDiagnosticBase,
+    errorCode: z.enum([
+      'TIMEOUT',
+      'FETCH_REJECTED',
+      'UPSTREAM_ERROR',
+      'INVALID_RESPONSE',
+      'RESPONSE_TOO_LARGE',
+      'UNEXPECTED',
+    ]),
   })
   .strict();
 
-export const downloadCenterRepositoryDiagnosticSchema = z.discriminatedUnion(
-  'status',
-  [successDiagnosticSchema, errorDiagnosticSchema]
-);
+const redirectDiagnosticSchema = z
+  .object({
+    ...repositoryDiagnosticBase,
+    errorCode: z.literal('HTTP_REDIRECT'),
+    httpStatus: httpStatusSchema.refine((status) => status >= 300 && status < 400),
+  })
+  .strict();
+
+const httpErrorDiagnosticSchema = z
+  .object({
+    ...repositoryDiagnosticBase,
+    errorCode: z.literal('HTTP_ERROR'),
+    httpStatus: httpStatusSchema.refine(
+      (status) =>
+        (status >= 100 && status < 200) ||
+        (status >= 400 && status <= 599 && status !== 403 && status !== 429)
+    ),
+  })
+  .strict();
+
+const rateLimitedDiagnosticSchema = z
+  .object({
+    ...repositoryDiagnosticBase,
+    errorCode: z.literal('RATE_LIMITED'),
+    httpStatus: z.union([z.literal(403), z.literal(429)]).optional(),
+  })
+  .strict();
+
+export const downloadCenterRepositoryDiagnosticSchema = z.union([
+  successDiagnosticSchema,
+  nonHttpErrorDiagnosticSchema,
+  redirectDiagnosticSchema,
+  httpErrorDiagnosticSchema,
+  rateLimitedDiagnosticSchema,
+]);
 
 export const downloadCenterDiagnosticStateSchema = z
   .object({

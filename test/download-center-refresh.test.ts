@@ -447,10 +447,14 @@ describe('Download Center derived LKG refresh', () => {
   });
 
   it.each([
-    ['RATE_LIMITED', () => new Response('{}', { status: 403 })],
-    ['UPSTREAM_ERROR', () => new Response('{}', { status: 500 })],
+    ['RATE_LIMITED', 403, () => new Response('{}', { status: 403 })],
+    ['RATE_LIMITED', 429, () => new Response('{}', { status: 429 })],
+    ['HTTP_REDIRECT', 302, () => new Response('', { status: 302 })],
+    ['HTTP_ERROR', 404, () => new Response('{}', { status: 404 })],
+    ['HTTP_ERROR', 500, () => new Response('{}', { status: 500 })],
     [
       'INVALID_RESPONSE',
+      undefined,
       () =>
         new Response('{bad-json', {
           headers: { 'Content-Type': 'application/json' },
@@ -458,6 +462,7 @@ describe('Download Center derived LKG refresh', () => {
     ],
     [
       'RESPONSE_TOO_LARGE',
+      undefined,
       () =>
         new Response('{}', {
           headers: {
@@ -466,7 +471,7 @@ describe('Download Center derived LKG refresh', () => {
           },
         }),
     ],
-  ] as const)('records adapter %s distinctly', async (errorCode, outcome) => {
+  ] as const)('records adapter %s distinctly', async (errorCode, httpStatus, outcome) => {
     const now = 1_000_000;
     const kv = await kvWithConfig(snapshot(), now);
     await refreshDownloadCenterResolvedState(env(kv), {
@@ -479,9 +484,79 @@ describe('Download Center derived LKG refresh', () => {
     expect(loaded).toMatchObject({
       status: 'valid',
       state: {
-        repositories: [{ status: 'error', errorCode }],
+        repositories: [
+          {
+            status: 'error',
+            errorCode,
+            ...(httpStatus === undefined ? {} : { httpStatus }),
+          },
+        ],
       },
     });
+  });
+
+  it('records adapter fetch rejection without raw Error metadata', async () => {
+    const now = 1_000_000;
+    const kv = await kvWithConfig(snapshot(), now);
+    await refreshDownloadCenterResolvedState(env(kv), {
+      fetcher: vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new TypeError('private fetch sentinel')),
+      now: () => now,
+      diagnosticNow: sequenceClock([1_100, 1_200]),
+      elapsedNow: sequenceClock([0, 1]),
+    });
+    const loaded = await loadDownloadCenterDiagnosticState(kv.binding());
+    expect(loaded).toMatchObject({
+      status: 'valid',
+      state: {
+        repositories: [
+          { status: 'error', errorCode: 'FETCH_REJECTED', elapsedMs: 1 },
+        ],
+      },
+    });
+    const persisted = kv.values.get(DOWNLOAD_CENTER_DIAGNOSTIC_KEY)!;
+    expect(persisted).not.toContain('private fetch sentinel');
+    expect(persisted).not.toContain('TypeError');
+    expect(persisted).not.toContain('stack');
+    expect(persisted).not.toContain('httpStatus');
+  });
+
+  it('persists HTTP classification without response body or headers', async () => {
+    const now = 1_000_000;
+    const kv = await kvWithConfig(snapshot(), now);
+    await refreshDownloadCenterResolvedState(env(kv), {
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response('PRIVATE_HTTP_BODY_SENTINEL', {
+          status: 500,
+          headers: { 'X-Private-Sentinel': 'PRIVATE_HEADER_SENTINEL' },
+        })
+      ),
+      now: () => now,
+      diagnosticNow: sequenceClock([1_100, 1_200]),
+      elapsedNow: sequenceClock([0, 2]),
+    });
+    const loaded = await loadDownloadCenterDiagnosticState(kv.binding());
+    expect(loaded).toMatchObject({
+      status: 'valid',
+      state: {
+        repositories: [
+          {
+            status: 'error',
+            errorCode: 'HTTP_ERROR',
+            httpStatus: 500,
+          },
+        ],
+      },
+    });
+    const persisted = kv.values.get(DOWNLOAD_CENTER_DIAGNOSTIC_KEY)!;
+    for (const forbidden of [
+      'PRIVATE_HTTP_BODY_SENTINEL',
+      'PRIVATE_HEADER_SENTINEL',
+      'X-Private-Sentinel',
+    ]) {
+      expect(persisted).not.toContain(forbidden);
+    }
   });
 
   it('records non-GitHub repository errors as UNEXPECTED', async () => {

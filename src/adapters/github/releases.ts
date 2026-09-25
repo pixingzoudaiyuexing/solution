@@ -16,15 +16,74 @@ export const GITHUB_RELEASE_MAX_URL_LENGTH = 2048;
 export type GitHubReleaseErrorCode =
   | 'TIMEOUT'
   | 'RATE_LIMITED'
+  | 'FETCH_REJECTED'
+  | 'HTTP_REDIRECT'
+  | 'HTTP_ERROR'
   | 'UPSTREAM_ERROR'
   | 'INVALID_RESPONSE'
   | 'RESPONSE_TOO_LARGE';
 
 export class GitHubReleaseError extends Error {
-  constructor(readonly code: GitHubReleaseErrorCode) {
+  declare readonly httpStatus?: number;
+
+  constructor(
+    readonly code: GitHubReleaseErrorCode,
+    httpStatus?: number
+  ) {
     super(`GitHub release resolution failed: ${code}`);
     this.name = 'GitHubReleaseError';
+    const validatedStatus = validateErrorHttpStatus(code, httpStatus);
+    if (validatedStatus !== undefined) {
+      this.httpStatus = validatedStatus;
+    }
   }
+}
+
+function validHttpStatus(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 100 &&
+    value <= 599
+  );
+}
+
+function validHttpErrorStatus(status: number): boolean {
+  return (
+    (status >= 100 && status < 200) ||
+    (status >= 400 && status <= 599 && status !== 403 && status !== 429)
+  );
+}
+
+function validateErrorHttpStatus(
+  code: GitHubReleaseErrorCode,
+  httpStatus: number | undefined
+): number | undefined {
+  if (code === 'HTTP_REDIRECT') {
+    if (!validHttpStatus(httpStatus) || httpStatus < 300 || httpStatus >= 400) {
+      throw new Error('Invalid GitHub redirect status');
+    }
+    return httpStatus;
+  }
+  if (code === 'HTTP_ERROR') {
+    if (!validHttpStatus(httpStatus) || !validHttpErrorStatus(httpStatus)) {
+      throw new Error('Invalid GitHub HTTP error status');
+    }
+    return httpStatus;
+  }
+  if (code === 'RATE_LIMITED') {
+    if (
+      httpStatus !== undefined &&
+      (!validHttpStatus(httpStatus) || (httpStatus !== 403 && httpStatus !== 429))
+    ) {
+      throw new Error('Invalid GitHub rate-limit status');
+    }
+    return httpStatus;
+  }
+  if (httpStatus !== undefined) {
+    throw new Error('GitHub error code does not allow an HTTP status');
+  }
+  return undefined;
 }
 
 export interface GitHubReleaseAsset {
@@ -154,22 +213,22 @@ export class GitHubReleasesAdapter {
     } catch (error) {
       if (error instanceof GitHubReleaseError) throw error;
       if (controller.signal.aborted) throw new GitHubReleaseError('TIMEOUT');
-      throw new GitHubReleaseError('UPSTREAM_ERROR');
+      throw new GitHubReleaseError('FETCH_REJECTED');
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
     }
 
     if (response.status >= 300 && response.status < 400) {
       await cancelUnusedResponseBody(response);
-      throw new GitHubReleaseError('UPSTREAM_ERROR');
+      throw new GitHubReleaseError('HTTP_REDIRECT', response.status);
     }
     if (response.status === 403 || response.status === 429) {
       await cancelUnusedResponseBody(response);
-      throw new GitHubReleaseError('RATE_LIMITED');
+      throw new GitHubReleaseError('RATE_LIMITED', response.status);
     }
     if (response.status < 200 || response.status >= 300) {
       await cancelUnusedResponseBody(response);
-      throw new GitHubReleaseError('UPSTREAM_ERROR');
+      throw new GitHubReleaseError('HTTP_ERROR', response.status);
     }
     const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
     if (!contentType.includes('application/json') && !contentType.includes('+json')) {

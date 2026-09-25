@@ -92,8 +92,63 @@ function boundedElapsed(startedAt: number | null, endedAt: number | null): numbe
   );
 }
 
-function diagnosticErrorCode(error: unknown): DownloadCenterDiagnosticErrorCode {
-  return error instanceof GitHubReleaseError ? error.code : 'UNEXPECTED';
+function failureDiagnostic(
+  repository: string,
+  attemptedAt: number,
+  elapsedMs: number,
+  error: unknown
+): DownloadCenterRepositoryDiagnostic {
+  if (!(error instanceof GitHubReleaseError)) {
+    return {
+      repository,
+      attemptedAt,
+      elapsedMs,
+      status: 'error',
+      errorCode: 'UNEXPECTED',
+    };
+  }
+  switch (error.code) {
+    case 'HTTP_REDIRECT':
+      return {
+        repository,
+        attemptedAt,
+        elapsedMs,
+        status: 'error',
+        errorCode: error.code,
+        httpStatus: error.httpStatus!,
+      };
+    case 'HTTP_ERROR':
+      return {
+        repository,
+        attemptedAt,
+        elapsedMs,
+        status: 'error',
+        errorCode: error.code,
+        httpStatus: error.httpStatus!,
+      };
+    case 'RATE_LIMITED':
+      return {
+        repository,
+        attemptedAt,
+        elapsedMs,
+        status: 'error',
+        errorCode: error.code,
+        ...(error.httpStatus === undefined
+          ? {}
+          : { httpStatus: error.httpStatus as 403 | 429 }),
+      };
+    default:
+      return {
+        repository,
+        attemptedAt,
+        elapsedMs,
+        status: 'error',
+        errorCode: error.code as Exclude<
+          DownloadCenterDiagnosticErrorCode,
+          'HTTP_REDIRECT' | 'HTTP_ERROR' | 'RATE_LIMITED'
+        >,
+      };
+  }
 }
 
 export async function refreshDownloadCenterResolvedState(
@@ -162,13 +217,14 @@ export async function refreshDownloadCenterResolvedState(
       },
       (error) => {
         try {
-          repositoryDiagnostics.push({
-            repository: key,
-            attemptedAt,
-            elapsedMs: boundedElapsed(startedAt, safeElapsedClock(elapsedNow)),
-            status: 'error',
-            errorCode: diagnosticErrorCode(error),
-          });
+          repositoryDiagnostics.push(
+            failureDiagnostic(
+              key,
+              attemptedAt,
+              boundedElapsed(startedAt, safeElapsedClock(elapsedNow)),
+              error
+            )
+          );
         } catch {}
         throw error;
       }
