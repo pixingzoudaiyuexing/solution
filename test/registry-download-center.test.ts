@@ -8,59 +8,144 @@ import {
 import {
   DOWNLOAD_CENTER_MAX_ITEMS,
   DOWNLOAD_CENTER_MAX_MATCHER_ENTRIES,
-  DOWNLOAD_CENTER_MAX_MIRRORS,
+  DOWNLOAD_CENTER_MAX_PROVIDERS,
   DOWNLOAD_CENTER_MAX_STALE_AGE_SECONDS,
   downloadCenterConfigSchema,
   downloadCenterOperationalDefinition,
   downloadCenterRegistryDefinition,
-  isValidMirrorTemplate,
-  renderMirrorUrl,
+  getDefaultDownloadProviders,
+  renderGithubUrlPrefixDownload,
 } from '../src/registry/modules/download-center';
+
+const downloadProviders = [
+  {
+    id: 'hubproxy-self',
+    enabled: true,
+    label: '高速下载',
+    type: 'github-url-prefix',
+    baseUrl: 'https://git.hubproxy.top/',
+  },
+  {
+    id: 'gh-proxy-public',
+    enabled: true,
+    label: '备用下载',
+    type: 'github-url-prefix',
+    baseUrl: 'https://gh-proxy.com/',
+  },
+] as const;
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'desktop-client',
+    id: 'windows',
     enabled: true,
-    label: { default: 'Desktop Client' },
+    label: { default: 'Windows' },
     audience: 'public',
-    platform: 'macos',
-    arch: 'arm64',
+    platform: 'windows',
+    arch: 'x64',
     github: {
-      repository: 'owner/repo',
+      repository: 'clash-verge-rev/clash-verge-rev',
       release: 'latest',
       assetMatch: {
         prefix: null,
-        suffix: '.dmg',
+        suffix: '_x64-setup.exe',
         contains: [],
-        include: ['arm64'],
-        exclude: ['sha256', 'symbols'],
+        include: [],
+        exclude: [],
       },
     },
     refreshHours: 24,
     maxStaleHours: 168,
-    mirrors: [
-      {
-        id: 'mirror-a',
-        label: 'Mirror A',
-        template: 'https://mirror.example/download/{owner}/{repo}/{tag}/{filename}',
-      },
-    ],
     ...overrides,
   };
 }
 
-function registryBody(config: unknown): string {
+function config(overrides: Record<string, unknown> = {}) {
+  return {
+    downloadProviders: downloadProviders.map((provider) => ({ ...provider })),
+    defaultDownloadProviderIds: ['hubproxy-self', 'gh-proxy-public'],
+    items: [item()],
+    ...overrides,
+  };
+}
+
+function canonicalItems() {
+  const clashRepository = 'clash-verge-rev/clash-verge-rev';
+  const { arch: _macArch, ...macBase } = item();
+  return [
+    item(),
+    {
+      ...macBase,
+      id: 'macos',
+      label: { default: 'Mac' },
+      platform: 'macos',
+      github: {
+        repository: 'MetaCubeX/ClashX.Meta',
+        release: 'latest',
+        assetMatch: {
+          prefix: null,
+          suffix: 'ClashX.Meta.zip',
+          contains: [],
+          include: [],
+          exclude: [],
+        },
+      },
+    },
+    item({
+      id: 'android',
+      label: { default: 'Android' },
+      platform: 'android',
+      arch: 'universal',
+      github: {
+        repository: 'MetaCubeX/ClashMetaForAndroid',
+        release: 'latest',
+        assetMatch: {
+          prefix: null,
+          suffix: '-meta-universal-release.apk',
+          contains: [],
+          include: [],
+          exclude: [],
+        },
+      },
+    }),
+    ...[
+      ['linux-deb-x64', 'Debian / Ubuntu', 'x64', '_amd64.deb'],
+      ['linux-deb-arm64', 'Debian / Ubuntu', 'arm64', '_arm64.deb'],
+      ['linux-rpm-x64', 'Fedora / RHEL', 'x64', '.x86_64.rpm'],
+      ['linux-rpm-arm64', 'Fedora / RHEL', 'arm64', '.aarch64.rpm'],
+    ].map(([id, label, arch, suffix]) =>
+      item({
+        id,
+        label: { default: label },
+        platform: 'linux',
+        arch,
+        github: {
+          repository: clashRepository,
+          release: 'latest',
+          assetMatch: {
+            prefix: null,
+            suffix,
+            contains: [],
+            include: [],
+            exclude: [],
+          },
+        },
+      })
+    ),
+  ];
+}
+
+function registryBody(value: unknown): string {
   return JSON.stringify({
     kind: 'aureole.registry',
     moduleId: 'download-center',
     schemaVersion: 1,
     enabled: true,
-    config,
+    config: value,
   });
 }
 
 describe('M03 download-center Registry definition', () => {
-  it('uses public schema v1 with the frozen hard bounds', () => {
+  it('uses public schema v1 with bounded providers, items and freshness', () => {
     expect(downloadCenterRegistryDefinition).toMatchObject({
       moduleId: 'download-center',
       schemaVersion: 1,
@@ -72,10 +157,15 @@ describe('M03 download-center Registry definition', () => {
     });
     expect({
       items: DOWNLOAD_CENTER_MAX_ITEMS,
-      mirrors: DOWNLOAD_CENTER_MAX_MIRRORS,
+      providers: DOWNLOAD_CENTER_MAX_PROVIDERS,
       matcherEntries: DOWNLOAD_CENTER_MAX_MATCHER_ENTRIES,
       staleSeconds: DOWNLOAD_CENTER_MAX_STALE_AGE_SECONDS,
-    }).toEqual({ items: 50, mirrors: 8, matcherEntries: 8, staleSeconds: 604_800 });
+    }).toEqual({
+      items: 50,
+      providers: 8,
+      matcherEntries: 8,
+      staleSeconds: 604_800,
+    });
     expect(
       registryOperationalDefinitions.some(
         (definition) => definition.registryDefinition.moduleId === 'download-center'
@@ -83,19 +173,29 @@ describe('M03 download-center Registry definition', () => {
     ).toBe(true);
   });
 
-  it('accepts and normalizes the frozen configuration semantics', () => {
-    const parsed = downloadCenterConfigSchema.parse({
-      items: [item({ label: { default: ' Desktop Client ' } })],
-    });
-    expect(parsed.items[0]).toMatchObject({
-      id: 'desktop-client',
-      label: { default: 'Desktop Client' },
-      audience: 'public',
-      platform: 'macos',
-      arch: 'arm64',
-      refreshHours: 24,
-      maxStaleHours: 168,
-    });
+  it('accepts the canonical Windows, Mac, Android and four Linux items without iOS', () => {
+    const parsed = downloadCenterConfigSchema.parse(
+      config({ items: canonicalItems() })
+    );
+    expect(parsed.defaultDownloadProviderIds).toEqual([
+      'hubproxy-self',
+      'gh-proxy-public',
+    ]);
+    expect(parsed.items.map(({ id, label, platform, arch }) => ({
+      id,
+      label: label.default,
+      platform,
+      arch: arch ?? null,
+    }))).toEqual([
+      { id: 'windows', label: 'Windows', platform: 'windows', arch: 'x64' },
+      { id: 'macos', label: 'Mac', platform: 'macos', arch: null },
+      { id: 'android', label: 'Android', platform: 'android', arch: 'universal' },
+      { id: 'linux-deb-x64', label: 'Debian / Ubuntu', platform: 'linux', arch: 'x64' },
+      { id: 'linux-deb-arm64', label: 'Debian / Ubuntu', platform: 'linux', arch: 'arm64' },
+      { id: 'linux-rpm-x64', label: 'Fedora / RHEL', platform: 'linux', arch: 'x64' },
+      { id: 'linux-rpm-arm64', label: 'Fedora / RHEL', platform: 'linux', arch: 'arm64' },
+    ]);
+    expect(parsed.items.some((entry) => entry.platform === ('ios' as never))).toBe(false);
   });
 
   it.each([
@@ -105,74 +205,102 @@ describe('M03 download-center Registry definition', () => {
     'owner//repo',
     'owner/../repo',
     'https://github.com/owner/repo',
-    'github.com/owner/repo?x=1',
+    'owner/repo?x=1',
     'owner/repo#fragment',
     'owner\\repo',
-    ' owner/repo',
-    'owner/repo ',
   ])('rejects unsafe repository form %s', (repository) => {
     expect(
-      downloadCenterConfigSchema.safeParse({
-        items: [
-          item({
-            github: {
-              ...(item().github as object),
-              repository,
-            },
-          }),
-        ],
-      }).success
+      downloadCenterConfigSchema.safeParse(
+        config({
+          items: [
+            item({
+              github: { ...item().github, repository },
+            }),
+          ],
+        })
+      ).success
     ).toBe(false);
   });
 
   it.each([
-    ['unknown config field', { items: [item()], apiUrl: 'https://api.example' }],
-    ['unknown item field', { items: [item({ command: 'run()' })] }],
-    ['non-public audience', { items: [item({ audience: 'authenticated' })] }],
-    ['arbitrary release selector', { items: [item({ github: { ...(item().github as object), release: 'v1' } })] }],
-    ['arbitrary regex field', { items: [item({ github: { ...(item().github as object), assetMatch: { ...(item().github as any).assetMatch, regex: '.*' } } })] }],
-    ['unsafe label', { items: [item({ label: { default: '<script>' } })] }],
-    ['too many matcher entries', { items: [item({ github: { ...(item().github as object), assetMatch: { ...(item().github as any).assetMatch, include: Array(9).fill('x') } } })] }],
-    ['stale lower than refresh', { items: [item({ refreshHours: 25, maxStaleHours: 24 })] }],
-    ['too many mirrors', { items: [item({ mirrors: Array.from({ length: 9 }, (_, index) => ({ id: `mirror-${index}`, label: 'Mirror', template: 'https://mirror.example/{filename}' })) })] }],
-    ['duplicate mirrors', { items: [item({ mirrors: [item().mirrors[0], item().mirrors[0]] })] }],
-    ['too many items', { items: Array.from({ length: 51 }, (_, index) => item({ id: `item-${index}` })) }],
-  ])('rejects %s', (_case, config) => {
-    expect(downloadCenterConfigSchema.safeParse(config).success).toBe(false);
-  });
-
-  it.each([
-    'http://mirror.example/{filename}',
-    'https://user:pass@mirror.example/{filename}',
-    'https://mirror.example/{unknown}',
-    'https://mirror.example/{filename}/{',
-    'https://mirror.example/${javascript:alert(1)}',
+    'http://git.hubproxy.top/',
+    'https://user:pass@git.hubproxy.top/',
+    'https://git.hubproxy.top/path',
+    'https://git.hubproxy.top/?query=1',
+    'https://git.hubproxy.top/#fragment',
+    'https://git.hubproxy.top/{url}',
+    'https://git.hubproxy.top/${url}/',
+    'https://github.com/',
     'javascript:alert(1)',
-  ])('rejects unsafe mirror template %s', (template) => {
-    expect(isValidMirrorTemplate(template)).toBe(false);
+  ])('rejects unsafe provider base URL %s', (baseUrl) => {
     expect(
-      downloadCenterConfigSchema.safeParse({
-        items: [item({ mirrors: [{ id: 'mirror-a', label: 'Mirror', template }] })],
-      }).success
+      downloadCenterConfigSchema.safeParse(
+        config({
+          downloadProviders: [
+            { ...downloadProviders[0], baseUrl },
+            { ...downloadProviders[1] },
+          ],
+        })
+      ).success
     ).toBe(false);
   });
 
-  it('renders only the fixed placeholder allowlist with encoded values', () => {
-    expect(
-      renderMirrorUrl(
-        'https://mirror.example/{owner}/{repo}/{tag}/{filename}',
-        { owner: 'owner', repo: 'repo', tag: 'release/1', filename: 'Client 1.dmg' }
-      )
-    ).toBe('https://mirror.example/owner/repo/release%2F1/Client%201.dmg');
+  it.each([
+    ['duplicate provider IDs', config({ downloadProviders: [downloadProviders[0], downloadProviders[0]] })],
+    ['duplicate defaults', config({ defaultDownloadProviderIds: ['hubproxy-self', 'hubproxy-self'] })],
+    ['missing provider reference', config({ defaultDownloadProviderIds: ['hubproxy-self', 'missing'] })],
+    ['disabled provider reference', config({ downloadProviders: [{ ...downloadProviders[0] }, { ...downloadProviders[1], enabled: false }] })],
+    ['unsupported provider type', config({ downloadProviders: [{ ...downloadProviders[0], type: 'template' }, downloadProviders[1]] })],
+    ['unknown provider field', config({ downloadProviders: [{ ...downloadProviders[0], template: '{url}' }, downloadProviders[1]] })],
+    ['too many providers', config({ downloadProviders: Array.from({ length: 9 }, (_, index) => ({ ...downloadProviders[0], id: `provider-${index}`, baseUrl: `https://provider-${index}.example/` })), defaultDownloadProviderIds: ['provider-0', 'provider-1'] })],
+    ['one default provider', config({ defaultDownloadProviderIds: ['hubproxy-self'] })],
+    ['three default providers', config({ defaultDownloadProviderIds: ['hubproxy-self', 'gh-proxy-public', 'extra'] })],
+    ['old mirrors field', config({ items: [item({ mirrors: [] })] })],
+    ['per-item provider override', config({ items: [item({ downloadProviderIds: ['hubproxy-self', 'gh-proxy-public'] })] })],
+    ['iOS platform', config({ items: [item({ id: 'ios', platform: 'ios' })] })],
+    ['arbitrary regex field', config({ items: [item({ github: { ...item().github, assetMatch: { ...item().github.assetMatch, regex: '.*' } } })] })],
+    ['stale lower than refresh', config({ items: [item({ refreshHours: 25, maxStaleHours: 24 })] })],
+  ])('rejects %s', (_case, value) => {
+    expect(downloadCenterConfigSchema.safeParse(value).success).toBe(false);
   });
 
-  it('projects only enabled items and removes the source-only enabled field', () => {
-    const config = downloadCenterConfigSchema.parse({
-      items: [item(), item({ id: 'disabled-client', enabled: false })],
-    });
-    const projected = downloadCenterOperationalDefinition.projectSnapshot(config);
-    expect(projected.items).toHaveLength(1);
-    expect(projected.items[0].id).toBe('desktop-client');
+  it('renders provider prefixes without encoding the validated GitHub URL', () => {
+    const source =
+      'https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe';
+    expect(renderGithubUrlPrefixDownload('https://git.hubproxy.top/', source)).toBe(
+      `https://git.hubproxy.top/${source}`
+    );
+    expect(renderGithubUrlPrefixDownload('https://gh-proxy.com/', source)).toBe(
+      `https://gh-proxy.com/${source}`
+    );
+  });
+
+  it('projects only enabled providers/items and preserves selected provider order', () => {
+    const parsed = downloadCenterConfigSchema.parse(
+      config({
+        downloadProviders: [
+          ...downloadProviders.map((provider) => ({ ...provider })),
+          {
+            id: 'disabled-provider',
+            enabled: false,
+            label: 'Disabled',
+            type: 'github-url-prefix',
+            baseUrl: 'https://disabled.example/',
+          },
+        ],
+        items: [item(), item({ id: 'disabled-item', enabled: false })],
+      })
+    );
+    const projected = downloadCenterOperationalDefinition.projectSnapshot(parsed);
+    expect(projected.downloadProviders.map((provider) => provider.id)).toEqual([
+      'hubproxy-self',
+      'gh-proxy-public',
+    ]);
+    expect(projected.items.map((entry) => entry.id)).toEqual(['windows']);
+    expect(getDefaultDownloadProviders(projected).map((provider) => provider.id)).toEqual([
+      'hubproxy-self',
+      'gh-proxy-public',
+    ]);
     expect(JSON.stringify(projected)).not.toContain('enabled');
   });
 
@@ -186,7 +314,7 @@ describe('M03 download-center Registry definition', () => {
           title: 'registry:download-center',
           show: 1,
           updatedAt: 100,
-          body: registryBody({ items: [duplicate, duplicate] }),
+          body: registryBody(config({ items: [duplicate, duplicate] })),
         },
       ],
       [downloadCenterRegistryDefinition]

@@ -5,20 +5,17 @@ import { isStableId } from '../stable-id';
 
 export const DOWNLOAD_CENTER_MODULE_ID = 'download-center';
 export const DOWNLOAD_CENTER_MAX_ITEMS = 50;
-export const DOWNLOAD_CENTER_MAX_MIRRORS = 8;
+export const DOWNLOAD_CENTER_MAX_PROVIDERS = 8;
 export const DOWNLOAD_CENTER_MAX_MATCHER_ENTRIES = 8;
 export const DOWNLOAD_CENTER_MAX_STALE_AGE_SECONDS = 168 * 60 * 60;
+export const DOWNLOAD_PROVIDER_BASE_URL_MAX_LENGTH = 2048;
+export const DOWNLOAD_PROVIDER_OUTPUT_URL_MAX_LENGTH = 4096;
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const UNSAFE_PLAIN_TEXT = /[<>\u0000-\u001f\u007f-\u009f]/;
+const UNSAFE_PROVIDER_SYNTAX = /[{}\\`]/;
 const GITHUB_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const GITHUB_REPOSITORY = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9._-])?$/;
-const ALLOWED_MIRROR_PLACEHOLDERS = new Set([
-  '{owner}',
-  '{repo}',
-  '{tag}',
-  '{filename}',
-]);
 
 function plainTextSchema(maxLength: number): z.ZodType<string> {
   return z
@@ -29,12 +26,13 @@ function plainTextSchema(maxLength: number): z.ZodType<string> {
     .refine((value) => !UNSAFE_PLAIN_TEXT.test(value));
 }
 
-const presentationMetadataSchema = plainTextSchema(64);
 const matcherLiteralSchema = z
   .string()
   .min(1)
   .max(128)
   .refine((value) => !CONTROL.test(value));
+const stableIdSchema = z.string().refine(isStableId);
+const defaultProviderIdsSchema = z.tuple([stableIdSchema, stableIdSchema]);
 
 export interface GitHubRepositoryIdentity {
   owner: string;
@@ -58,78 +56,126 @@ export function parseGitHubRepository(
   return { owner: parts[0], repo: parts[1] };
 }
 
+export function normalizedGitHubRepositoryKey(value: string): string | null {
+  const repository = parseGitHubRepository(value);
+  return repository
+    ? `${repository.owner.toLowerCase()}/${repository.repo.toLowerCase()}`
+    : null;
+}
+
 const repositorySchema = z
   .string()
   .min(3)
   .max(140)
   .refine((value) => parseGitHubRepository(value) !== null);
 
-function substituteMirrorTemplate(
-  template: string,
-  values: GitHubRepositoryIdentity & { tag: string; filename: string }
-): string {
-  return template
-    .replaceAll('{owner}', encodeURIComponent(values.owner))
-    .replaceAll('{repo}', encodeURIComponent(values.repo))
-    .replaceAll('{tag}', encodeURIComponent(values.tag))
-    .replaceAll('{filename}', encodeURIComponent(values.filename));
-}
-
-function safeHttpsUrl(value: string): boolean {
-  if (value.length > 2048 || CONTROL.test(value)) return false;
+export function normalizeDownloadProviderBaseUrl(value: string): string | null {
+  if (
+    value.length === 0 ||
+    value.length > DOWNLOAD_PROVIDER_BASE_URL_MAX_LENGTH ||
+    CONTROL.test(value) ||
+    UNSAFE_PROVIDER_SYNTAX.test(value)
+  ) {
+    return null;
+  }
   try {
     const url = new URL(value);
-    return (
-      url.protocol === 'https:' &&
-      url.hostname.length > 0 &&
-      url.username.length === 0 &&
-      url.password.length === 0 &&
-      url.hash.length === 0
-    );
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname.length === 0 ||
+      url.username.length !== 0 ||
+      url.password.length !== 0 ||
+      url.search.length !== 0 ||
+      url.hash.length !== 0 ||
+      !url.pathname.endsWith('/') ||
+      hostname === 'github.com' ||
+      hostname === 'api.github.com'
+    ) {
+      return null;
+    }
+    const normalized = url.toString();
+    return normalized.length <= DOWNLOAD_PROVIDER_BASE_URL_MAX_LENGTH
+      ? normalized
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-export function isValidMirrorTemplate(value: string): boolean {
-  if (value.length === 0 || value.length > 2048 || CONTROL.test(value)) {
-    return false;
-  }
-  const placeholders = value.match(/\{[^{}]*\}/g) ?? [];
-  if (placeholders.some((placeholder) => !ALLOWED_MIRROR_PLACEHOLDERS.has(placeholder))) {
-    return false;
-  }
-  const withoutAllowed = value.replace(/\{(?:owner|repo|tag|filename)\}/g, 'x');
-  if (/[{}]/.test(withoutAllowed)) return false;
-  return safeHttpsUrl(
-    substituteMirrorTemplate(value, {
-      owner: 'owner',
-      repo: 'repo',
-      tag: 'v1.0.0',
-      filename: 'client.dmg',
-    })
-  );
-}
+const providerBaseUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(DOWNLOAD_PROVIDER_BASE_URL_MAX_LENGTH)
+  .transform((value, ctx) => {
+    const normalized = normalizeDownloadProviderBaseUrl(value);
+    if (normalized === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid download provider base URL',
+      });
+      return z.NEVER;
+    }
+    return normalized;
+  });
 
-export function renderMirrorUrl(
-  template: string,
-  values: GitHubRepositoryIdentity & { tag: string; filename: string }
+export function renderGithubUrlPrefixDownload(
+  baseUrl: string,
+  githubDownloadUrl: string
 ): string {
-  if (!isValidMirrorTemplate(template)) {
-    throw new Error('Invalid mirror template');
+  const normalizedBaseUrl = normalizeDownloadProviderBaseUrl(baseUrl);
+  if (normalizedBaseUrl === null || normalizedBaseUrl !== baseUrl) {
+    throw new Error('Invalid download provider base URL');
   }
-  const rendered = substituteMirrorTemplate(template, values);
-  if (!safeHttpsUrl(rendered)) throw new Error('Invalid rendered mirror URL');
+  let source: URL;
+  try {
+    source = new URL(githubDownloadUrl);
+  } catch {
+    throw new Error('Invalid GitHub download URL');
+  }
+  if (
+    source.protocol !== 'https:' ||
+    source.hostname.toLowerCase() !== 'github.com' ||
+    source.port !== '' ||
+    source.username !== '' ||
+    source.password !== '' ||
+    source.search !== '' ||
+    source.hash !== '' ||
+    !source.pathname.includes('/releases/download/')
+  ) {
+    throw new Error('Invalid GitHub download URL');
+  }
+  const rendered = `${normalizedBaseUrl}${githubDownloadUrl}`;
+  if (rendered.length > DOWNLOAD_PROVIDER_OUTPUT_URL_MAX_LENGTH) {
+    throw new Error('Rendered download URL is too long');
+  }
+  const parsed = new URL(rendered);
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    !rendered.endsWith(githubDownloadUrl)
+  ) {
+    throw new Error('Invalid rendered download URL');
+  }
   return rendered;
 }
 
-const mirrorSchema = z
+const downloadProviderBaseSchema = z
   .object({
-    id: z.string().refine(isStableId),
+    id: stableIdSchema,
+    enabled: z.boolean(),
     label: plainTextSchema(160),
-    template: z.string().refine(isValidMirrorTemplate),
+    type: z.literal('github-url-prefix'),
+    baseUrl: providerBaseUrlSchema,
   })
   .strict();
+const downloadProviderSnapshotSchema = downloadProviderBaseSchema.omit({
+  enabled: true,
+});
 
 const assetMatchSchema = z
   .object({
@@ -140,7 +186,6 @@ const assetMatchSchema = z
     exclude: z.array(matcherLiteralSchema).max(DOWNLOAD_CENTER_MAX_MATCHER_ENTRIES),
   })
   .strict();
-
 const githubSchema = z
   .object({
     repository: repositorySchema,
@@ -148,76 +193,139 @@ const githubSchema = z
     assetMatch: assetMatchSchema,
   })
   .strict();
-
 const labelSchema = z.object({ default: plainTextSchema(160) }).strict();
 
 const downloadItemBaseSchema = z
   .object({
-    id: z.string().refine(isStableId),
+    id: stableIdSchema,
     enabled: z.boolean(),
     label: labelSchema,
     audience: z.literal('public'),
-    platform: presentationMetadataSchema.optional(),
-    arch: presentationMetadataSchema.optional(),
+    platform: z.enum(['windows', 'macos', 'android', 'linux']),
+    arch: plainTextSchema(64).optional(),
     github: githubSchema,
     refreshHours: z.number().int().min(1).max(168),
     maxStaleHours: z.number().int().min(1).max(168),
-    mirrors: z.array(mirrorSchema).max(DOWNLOAD_CENTER_MAX_MIRRORS),
   })
   .strict();
 
 function validateDownloadItemBounds(
-  item: {
-    refreshHours: number;
-    maxStaleHours: number;
-    mirrors: Array<{ id: string }>;
-  },
+  item: { refreshHours: number; maxStaleHours: number },
   ctx: z.RefinementCtx
 ): void {
-    if (item.maxStaleHours < item.refreshHours) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['maxStaleHours'],
-        message: 'maxStaleHours must not be lower than refreshHours',
-      });
-    }
-    const mirrorIds = item.mirrors.map((mirror) => mirror.id);
-    if (new Set(mirrorIds).size !== mirrorIds.length) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['mirrors'],
-        message: 'Duplicate mirror id',
-      });
-    }
+  if (item.maxStaleHours < item.refreshHours) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxStaleHours'],
+      message: 'maxStaleHours must not be lower than refreshHours',
+    });
+  }
 }
 
 const downloadItemSchema = downloadItemBaseSchema.superRefine(
   validateDownloadItemBounds
 );
-
-export const downloadCenterConfigSchema = z
-  .object({
-    items: z.array(downloadItemSchema).max(DOWNLOAD_CENTER_MAX_ITEMS),
-  })
-  .strict();
-
-export type DownloadCenterRegistryConfig = z.infer<
-  typeof downloadCenterConfigSchema
->;
-export type DownloadCenterRegistryItem = DownloadCenterRegistryConfig['items'][number];
-
 const downloadItemSnapshotSchema = downloadItemBaseSchema
   .omit({ enabled: true })
   .superRefine(validateDownloadItemBounds);
 
+function validateProviderIds(
+  providers: ReadonlyArray<{ id: string }>,
+  defaultIds: readonly [string, string],
+  ctx: z.RefinementCtx,
+  enabledIds?: ReadonlySet<string>
+): void {
+  const ids = providers.map((provider) => provider.id);
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['downloadProviders'],
+      message: 'Duplicate download provider id',
+    });
+  }
+  if (defaultIds[0] === defaultIds[1]) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['defaultDownloadProviderIds'],
+      message: 'Default download providers must be distinct',
+    });
+  }
+  const providerIds = new Set(ids);
+  for (const [index, id] of defaultIds.entries()) {
+    if (!providerIds.has(id) || (enabledIds !== undefined && !enabledIds.has(id))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['defaultDownloadProviderIds', index],
+        message: 'Default download provider is missing or disabled',
+      });
+    }
+  }
+}
+
+export const downloadCenterConfigSchema = z
+  .object({
+    downloadProviders: z
+      .array(downloadProviderBaseSchema)
+      .max(DOWNLOAD_CENTER_MAX_PROVIDERS),
+    defaultDownloadProviderIds: defaultProviderIdsSchema,
+    items: z.array(downloadItemSchema).max(DOWNLOAD_CENTER_MAX_ITEMS),
+  })
+  .strict()
+  .superRefine((config, ctx) => {
+    validateProviderIds(
+      config.downloadProviders,
+      config.defaultDownloadProviderIds,
+      ctx,
+      new Set(
+        config.downloadProviders
+          .filter((provider) => provider.enabled)
+          .map((provider) => provider.id)
+      )
+    );
+  });
+
+export type DownloadCenterRegistryConfig = z.infer<
+  typeof downloadCenterConfigSchema
+>;
+
 export const downloadCenterSnapshotSchema = z
   .object({
+    downloadProviders: z
+      .array(downloadProviderSnapshotSchema)
+      .max(DOWNLOAD_CENTER_MAX_PROVIDERS),
+    defaultDownloadProviderIds: defaultProviderIdsSchema,
     items: z.array(downloadItemSnapshotSchema).max(DOWNLOAD_CENTER_MAX_ITEMS),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    validateProviderIds(
+      config.downloadProviders,
+      config.defaultDownloadProviderIds,
+      ctx
+    );
+  });
 
 export type DownloadCenterSnapshot = z.infer<typeof downloadCenterSnapshotSchema>;
 export type DownloadCenterItemConfig = DownloadCenterSnapshot['items'][number];
+export type DownloadProviderConfig = DownloadCenterSnapshot['downloadProviders'][number];
+export type SelectedDownloadProviders = readonly [
+  DownloadProviderConfig,
+  DownloadProviderConfig,
+];
+
+export function getDefaultDownloadProviders(
+  config: DownloadCenterSnapshot
+): SelectedDownloadProviders {
+  const providers = new Map(
+    config.downloadProviders.map((provider) => [provider.id, provider])
+  );
+  const first = providers.get(config.defaultDownloadProviderIds[0]);
+  const second = providers.get(config.defaultDownloadProviderIds[1]);
+  if (!first || !second || first.id === second.id) {
+    throw new Error('Invalid default download providers');
+  }
+  return [first, second];
+}
 
 export const downloadCenterRegistryDefinition: RegistryModuleDefinition<DownloadCenterRegistryConfig> = {
   moduleId: DOWNLOAD_CENTER_MODULE_ID,
@@ -238,6 +346,10 @@ export const downloadCenterOperationalDefinition: RegistryOperationalModuleDefin
   },
   snapshotSchema: downloadCenterSnapshotSchema,
   projectSnapshot: (config) => ({
+    downloadProviders: config.downloadProviders
+      .filter((provider) => provider.enabled)
+      .map(({ enabled: _enabled, ...provider }) => provider),
+    defaultDownloadProviderIds: config.defaultDownloadProviderIds,
     items: config.items
       .filter((item) => item.enabled)
       .map(({ enabled: _enabled, ...item }) => item),

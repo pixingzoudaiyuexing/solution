@@ -118,10 +118,12 @@ Reserved Knowledge Registry -> Solution -> Aureole
 ## REG-M03 Download Center Implementation Candidate
 
 - Task state: implementation and local verification candidate only; mandatory Gemini post-code review remains required before merge/deployment.
-- Registry module: `download-center`, public exposure, schema v1, maximum 50 items, fixed `release=latest`, strict `owner/repo`, bounded literal matcher, refresh `1..168` hours and max stale `refreshHours..168` hours.
+- Registry module: `download-center`, public exposure, schema v1, maximum 50 items and 8 providers, fixed `release=latest`, strict `owner/repo`, bounded literal matcher, refresh `1..168` hours and max stale `refreshHours..168` hours.
+- Provider model: module-level `github-url-prefix`; exactly two distinct enabled default provider IDs. Public DTO emits exactly two ordered `downloads[]` entries and no standalone original GitHub URL or obsolete `downloadUrl`/`mirrors` fields.
 - Fixed provider boundary: `https://api.github.com/repos/{owner}/{repo}/releases/latest`, 10-second timeout, manual redirects, 512 KiB response bound, 100 assets, no Registry-selected URL and no GitHub token implementation.
-- Derived key: `registry:download-center:resolved:v1`; normalized public metadata plus config fingerprint and attempt/resolution/expiry timestamps only. Raw Registry/GitHub payload, mirror template, credentials and business/user data are excluded.
+- Derived key remains `registry:download-center:resolved:v1`; payload schema version is `2`, and old v1 payload fails closed. Normalized public provider-prefixed metadata plus effective config fingerprint and attempt/resolution/expiry timestamps only. Raw Registry/GitHub payload, provider base config, credentials and business/user data are excluded.
 - Public API: anonymous `GET /api/v1/downloads`, HTTP 200 neutral collection, `Cache-Control: no-store`; unavailable items are omitted and missing/corrupt/expired state returns `items: []` without public cause leakage.
-- Scheduled boundary remains one `waitUntil`, internally sequencing Registry refresh and M03 resolution. Browser data plane makes no Admin/GitHub/V2Board/mirror request.
+- Scheduled boundary remains one `waitUntil`, internally sequencing Registry refresh and M03 resolution. Per-run normalized repository Promise cache prevents duplicate GitHub calls; canonical seven items resolve three repositories. Browser data plane makes no Admin/GitHub/V2Board/provider request.
+- Canonical public groups are Windows, Mac, Android and multiple Linux items for Aureole `Linux GUI` grouping. iOS is reserved for a future separately approved non-download destination and is not emitted in v1.
 - `/api/v1` source route count is `52`; no new public health/registry/refresh/check/control-plane endpoint exists.
 - V2Board, Aureole, Production, DNS and deployment configuration are unchanged. Production runtime remains NOT VERIFIED.

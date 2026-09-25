@@ -3,6 +3,8 @@ import { GitHubReleasesAdapter } from '../adapters/github/releases';
 import { registryOperationalDefinitions } from './definitions';
 import {
   downloadCenterOperationalDefinition,
+  getDefaultDownloadProviders,
+  normalizedGitHubRepositoryKey,
   type DownloadCenterItemConfig,
 } from './modules/download-center';
 import { readRegistryModuleSnapshot } from './operational';
@@ -85,10 +87,27 @@ export async function refreshDownloadCenterResolvedState(
     options.fetcher ?? fetch,
     options.timeoutMs
   );
+  const selectedProviders = getDefaultDownloadProviders(snapshot.config);
+  const releasesByRepository = new Map<
+    string,
+    ReturnType<GitHubReleasesAdapter['latest']>
+  >();
+  const releaseFor = (item: DownloadCenterItemConfig) => {
+    const key = normalizedGitHubRepositoryKey(item.github.repository);
+    if (key === null) throw new Error('Invalid GitHub repository');
+    const existing = releasesByRepository.get(key);
+    if (existing) return existing;
+    const created = adapter.latest(item.github.repository);
+    releasesByRepository.set(key, created);
+    return created;
+  };
   const nextItems: DownloadCenterResolvedEntry[] = [];
 
   for (const item of snapshot.config.items) {
-    const fingerprint = await downloadCenterConfigFingerprint(item);
+    const fingerprint = await downloadCenterConfigFingerprint({
+      item,
+      downloadProviders: selectedProviders,
+    });
     const candidate = previousItems.find((previous) => previous.id === item.id);
     const previous = sameConfig(candidate, fingerprint) ? candidate : undefined;
     if (!resolutionDue(previous, item, now)) {
@@ -97,8 +116,8 @@ export async function refreshDownloadCenterResolvedState(
     }
 
     try {
-      const release = await adapter.latest(item.github.repository);
-      const data = resolveDownloadItem(item, release);
+      const release = await releaseFor(item);
+      const data = resolveDownloadItem(item, release, selectedProviders);
       nextItems.push({
         id: item.id,
         configFingerprint: fingerprint,

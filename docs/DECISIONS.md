@@ -19,7 +19,7 @@
 | D-015 | APPROVED | CF-03B 使用 V2Board visible Notice 作为 Dynamic Custom Pages 唯一 SSOT；exact lowercase `aureole:` 是 reserved control namespace。Solution request-locally 完整收集、分类和重分页，不 patch V2Board、不建立第二配置源，也绝不 server-side fetch Custom Page target。 |
 | D-016 | APPROVED | A1 Registry Kernel 以 Official V2Board Admin Knowledge 作为 internal raw source；Control Plane 只提供 code-owned Knowledge list/detail read，使用 deployment-owned auth_data 与 validated Admin prefix。Registry strict validation、stable IDs/references、exposure与secret primitives保持无状态，不新增 Public route、KV或 generic Admin proxy。 |
 | D-017 | APPROVED | A2 允许唯一 logical `REGISTRY_KV` 保存 derived/rebuildable Registry operational snapshot、bounded freshness 与 redacted health/alert metadata。KV 不持有业务/用户权威；refresh 仅允许 scheduled/internal 调用且不增加 Public route。 |
-| D-018 | APPROVED | REG-M03 Download Center 只允许固定 GitHub Releases origin/path、literal asset matcher、validated GitHub download URL 与 presentation-only HTTPS mirrors。Scheduled 解析结果作为可重建派生 LKG 写入现有 `REGISTRY_KV`；anonymous `/api/v1/downloads` 只读该 LKG，不触发 Admin/GitHub/V2Board fetch。 |
+| D-018 | APPROVED | REG-M03 Download Center 使用 module-level exactly-two enabled `github-url-prefix` providers；Public API 只返回 provider-prefixed `downloads[]`，不提供 standalone original GitHub URL。Scheduled 对同一 repository 做 per-run request dedup，并将可重建派生 LKG 写入现有 `REGISTRY_KV`；anonymous `/api/v1/downloads` 只读该 LKG。 |
 
 ## D-005 Subscription access 实施约束
 
@@ -73,9 +73,12 @@
 
 ## D-018 REG-M03 Download Center 实施约束
 
-- Registry 只允许 strict `owner/repo`、literal `release=latest`、bounded literal matcher 与 presentation-only HTTPS mirror template；不能提供 arbitrary API URL、outbound origin、regex、expression、JavaScript 或 credential。
+- Registry 只允许 strict `owner/repo`、literal `release=latest`、bounded literal matcher 与 module-level `github-url-prefix` providers；不能提供 arbitrary API URL、regex、expression、JavaScript、credential、per-item provider override 或 template language。
+- `downloadProviders` 最多 8 个，stable IDs 唯一；provider base URL 必须是 bounded HTTPS deterministic prefix，无 userinfo/query/fragment/control/template syntax，并以 `/` 结尾。`defaultDownloadProviderIds` 必须恰好包含两个不同且 enabled 的 provider IDs。Provider URL 通过 literal `baseUrl + validated GitHub browser_download_url` 生成，不 encode 完整 GitHub URL，Solution 不 fetch provider URL。
 - GitHub adapter 固定使用 `https://api.github.com/repos/{owner}/{repo}/releases/latest`、manual redirect、10-second timeout、512 KiB body bound、100-asset bound和显式字段长度限制。当前不读取 deployment token；未来增加 token 必须保持 deployment-owned，且不得进入 Registry/KV/Public DTO/log/error。
 - Matcher 对 bounded filename metadata执行 case-insensitive literal comparison；exactly one candidate 才成功，zero/multiple 都 unavailable。Selected URL 必须验证为 matching repository/tag/filename 的 GitHub HTTPS release download URL。
-- Scheduled 保持一个 `waitUntil`，内部顺序执行 Registry refresh 与 per-item external resolution。失败按 item 隔离，无 retry loop；`lastAttemptAt` 控制 refresh interval，prior LKG 只在相同 config fingerprint 且未超过 item `maxStaleHours` 时可公开。
-- 派生 key 固定为 `registry:download-center:resolved:v1`。只保存 normalized public metadata和必要 timestamp/fingerprint；raw GitHub/Registry payload、mirror template、repository matcher、secret、user/account/entitlement/subscription/business state 不得持久化。
+- Scheduled 保持一个 `waitUntil`，内部顺序执行 Registry refresh 与 external resolution。单次 run 使用 bounded in-memory normalized repository Promise cache；同一 `owner/repo` 的 due items 共享一个 latest-release result。失败按 repository/item 隔离，无 retry loop；`lastAttemptAt` 控制 refresh interval。
+- 派生 key 保持 `registry:download-center:resolved:v1`，payload schema version 为 `2`；旧 v1 payload fail closed。只保存 normalized public provider-prefixed metadata和必要 timestamp/effective fingerprint；raw GitHub/Registry payload、standalone original URL field、provider baseUrl config、repository matcher、secret、user/account/entitlement/subscription/business state 不得持久化。
+- Effective fingerprint 必须包含 item config、两个 selected providers 的 ID/label/type/baseUrl 和顺序。Provider config/order 变化后，旧 generated URLs 不能作为新配置 LKG 继续提供。
 - `GET /api/v1/downloads` 是 anonymous neutral collection。它不发起任何 outbound request；missing/corrupt/expired/unavailable item 被省略，empty collection仍为 HTTP 200。没有新的 Public health/registry/refresh/control-plane route，也不改变 V2Board authority。
+- M03 v1 platform 只允许 Windows、Mac、Android 和 Linux items；多个 Linux items 由 Aureole 分组为一个 `Linux GUI` section。`ios` 保留给未来 separately approved non-download destination，当前不返回 item/card/CTA/URL，也不提前定义 destination semantics。

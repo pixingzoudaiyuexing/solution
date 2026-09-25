@@ -1419,7 +1419,7 @@ M12 是 additive v1 extension；M12 完成时 `/api/v1` source route count 为 `
 GET /api/v1/downloads
 ```
 
-本接口无需 Bearer，始终设置 `Cache-Control: no-store`。Browser data plane 只读取现有 `REGISTRY_KV` 中独立、严格验证的派生 Download LKG，不调用 Admin Knowledge、Registry refresh、V2Board、GitHub API 或 mirror URL。Missing/corrupt/unavailable KV、无可用 item 或全部 item 过期时返回 HTTP 200 empty collection；单个 item 不可用不会使其他 item 失败。
+本接口无需 Bearer，始终设置 `Cache-Control: no-store`。Browser data plane 只读取现有 `REGISTRY_KV` 中独立、严格验证的派生 Download LKG，不调用 Admin Knowledge、Registry refresh、V2Board、GitHub API 或 download provider URL。Missing/corrupt/unavailable KV、无可用 item 或全部 item 过期时返回 HTTP 200 empty collection；单个 item 不可用不会使其他 item 失败。
 
 Success：
 
@@ -1429,20 +1429,24 @@ Success：
   "data": {
     "items": [
       {
-        "id": "desktop-client",
-        "label": "Desktop Client",
-        "platform": "macos",
-        "arch": "arm64",
-        "version": "v1.2.3",
+        "id": "windows",
+        "label": "Windows",
+        "platform": "windows",
+        "arch": "x64",
+        "version": "v2.5.5",
         "publishedAt": "2026-09-25T00:00:00.000Z",
-        "downloadUrl": "https://github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg",
-        "filename": "client-arm64.dmg",
+        "filename": "Clash.Verge_2.5.5_x64-setup.exe",
         "sizeBytes": 12345678,
-        "mirrors": [
+        "downloads": [
           {
-            "id": "mirror-a",
-            "label": "Mirror A",
-            "url": "https://mirror.example/download/owner/repo/v1.2.3/client-arm64.dmg"
+            "id": "hubproxy-self",
+            "label": "高速下载",
+            "url": "https://git.hubproxy.top/https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe"
+          },
+          {
+            "id": "gh-proxy-public",
+            "label": "备用下载",
+            "url": "https://gh-proxy.com/https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe"
           }
         ]
       }
@@ -1452,7 +1456,7 @@ Success：
 }
 ```
 
-`platform`、`arch` 与 `publishedAt` 始终存在，缺失时为 `null`。`mirrors` 始终为数组。Public DTO 不包含 Registry raw config、repository/matcher、mirror template、GitHub raw response/token、KV key、fingerprint、attempt/expiry timestamp、内部 health 或 failure cause。
+`platform` 仅为 `windows | macos | android | linux`；`arch` 与 `publishedAt` 始终存在，缺失时为 `null`。每个 available item 的 `downloads` 必须且只能包含两个 provider output，并严格保持 `defaultDownloadProviderIds` 的配置顺序。Public DTO 不提供 standalone original GitHub asset URL，也不存在旧 `downloadUrl` / `mirrors` 字段。Public DTO 同样不包含 Registry raw config、repository/matcher、provider `baseUrl`、GitHub raw response/token、KV key、fingerprint、attempt/expiry timestamp、内部 health 或 failure cause。
 
 Registry module identity 是 `registry:download-center`，schema version 为 `1`，maximum exposure 为 `public`。配置为 strict schema：
 
@@ -1463,47 +1467,84 @@ Registry module identity 是 `registry:download-center`，schema version 为 `1`
   "schemaVersion": 1,
   "enabled": true,
   "config": {
+    "downloadProviders": [
+      {
+        "id": "hubproxy-self",
+        "enabled": true,
+        "label": "高速下载",
+        "type": "github-url-prefix",
+        "baseUrl": "https://git.hubproxy.top/"
+      },
+      {
+        "id": "gh-proxy-public",
+        "enabled": true,
+        "label": "备用下载",
+        "type": "github-url-prefix",
+        "baseUrl": "https://gh-proxy.com/"
+      }
+    ],
+    "defaultDownloadProviderIds": [
+      "hubproxy-self",
+      "gh-proxy-public"
+    ],
     "items": [
       {
-        "id": "desktop-client",
+        "id": "windows",
         "enabled": true,
-        "label": { "default": "Desktop Client" },
+        "label": { "default": "Windows" },
         "audience": "public",
-        "platform": "macos",
-        "arch": "arm64",
+        "platform": "windows",
+        "arch": "x64",
         "github": {
-          "repository": "owner/repo",
+          "repository": "clash-verge-rev/clash-verge-rev",
           "release": "latest",
           "assetMatch": {
             "prefix": null,
-            "suffix": ".dmg",
+            "suffix": "_x64-setup.exe",
             "contains": [],
-            "include": ["arm64"],
-            "exclude": ["sha256", "symbols"]
+            "include": [],
+            "exclude": []
           }
         },
         "refreshHours": 24,
-        "maxStaleHours": 168,
-        "mirrors": [
-          {
-            "id": "mirror-a",
-            "label": "Mirror A",
-            "template": "https://mirror.example/download/{owner}/{repo}/{tag}/{filename}"
-          }
-        ]
+        "maxStaleHours": 168
       }
     ]
   }
 }
 ```
 
-硬边界：最多 50 items；`label.default` 为 1-160 safe plain-text characters；`audience` 仅允许 literal `public`；`platform`/`arch` 为 optional 1-64 safe presentation characters；repository 仅允许 trim 后单一 `owner/repo`，总长最多 140，owner 最多 39，repo 最多 100，不允许 scheme/origin/query/fragment/extra slash/backslash/traversal；release 仅允许 literal `latest`。每个 matcher array 最多 8 个 1-128 字符 literal；不支持 regex/expression/JavaScript。`refreshHours` 为整数 `1..168`；`maxStaleHours` 为整数 `refreshHours..168`。每 item 最多 8 mirrors，mirror template 最长 2048，只允许 HTTPS、无 userinfo/fragment，并只允许 `{owner}`、`{repo}`、`{tag}`、`{filename}`；Solution 只渲染并返回 URL，不 server-side fetch mirror。
+Provider 硬边界：最多 8 个 strict providers，ID 必须 unique stable ID；M03 v1 `type` 仅允许 `github-url-prefix`。`baseUrl` trim 后最长 2048，必须是 HTTPS、无 userinfo/query/fragment/control/backslash/template syntax，且可规范化为以 `/` 结尾的 deterministic prefix；`github.com` / `api.github.com` 不能作为 provider host。`defaultDownloadProviderIds` 必须恰好包含两个不同 ID，并且都引用 enabled provider。M03 v1 不支持 per-item override 或 template language。
+
+`github-url-prefix` 直接把已验证的 GitHub Release `browser_download_url` literal 追加到 normalized provider `baseUrl` 后；不把完整 GitHub URL encode 成单一 component。Solution 从不 fetch/provider probe 该 URL，provider config 只负责 public presentation routing。
+
+Item 硬边界：最多 50 items；`label.default` 为 1-160 safe plain-text characters；`audience` 仅允许 literal `public`；`platform` 必须是 `windows | macos | android | linux`；`arch` 为 optional 1-64 safe presentation characters。Repository 仅允许 trim 后单一 `owner/repo`，总长最多 140，owner 最多 39，repo 最多 100，不允许 scheme/origin/query/fragment/extra slash/backslash/traversal；release 仅允许 literal `latest`。每个 matcher array 最多 8 个 1-128 字符 literal；不支持 regex/expression/JavaScript。`refreshHours` 为整数 `1..168`；`maxStaleHours` 为整数 `refreshHours..168`。
+
+Canonical v1 Registry data（repository 名称属于配置，不在 runtime code hardcode）：
+
+| ID | Label | Platform | Arch | Repository | Asset suffix |
+| --- | --- | --- | --- | --- | --- |
+| `windows` | Windows | windows | x64 | `clash-verge-rev/clash-verge-rev` | `_x64-setup.exe` |
+| `macos` | Mac | macos | `null` | `MetaCubeX/ClashX.Meta` | `ClashX.Meta.zip` |
+| `android` | Android | android | universal | `MetaCubeX/ClashMetaForAndroid` | `-meta-universal-release.apk` |
+| `linux-deb-x64` | Debian / Ubuntu | linux | x64 | `clash-verge-rev/clash-verge-rev` | `_amd64.deb` |
+| `linux-deb-arm64` | Debian / Ubuntu | linux | arm64 | `clash-verge-rev/clash-verge-rev` | `_arm64.deb` |
+| `linux-rpm-x64` | Fedora / RHEL | linux | x64 | `clash-verge-rev/clash-verge-rev` | `.x86_64.rpm` |
+| `linux-rpm-arm64` | Fedora / RHEL | linux | arm64 | `clash-verge-rev/clash-verge-rev` | `.aarch64.rpm` |
+
+Solution 不提供第二个 Linux API；多个 `platform=linux` item 由 Aureole 分组为一个 `Linux GUI` section。Solution 不持有 frontend layout semantics。Canonical v1 不暴露 armhf/armhfp。
+
+`ios` 明确保留给未来 separately approved 的 non-download destination。M03 v1 schema 不接受 `platform=ios`，不返回 iOS item/card/CTA/URL，也不提前定义 destination semantics。
 
 Asset matching 对 filename 统一使用 case-insensitive literal comparison：prefix 必须位于开头，suffix 必须位于结尾，contains 全部出现，非空 include 至少一个出现，exclude 全部不得出现。恰好一个 candidate 才成功；零个或多个均使该 item unavailable，绝不按 GitHub asset array order 选择。
 
 Scheduled path 在现有单一 `waitUntil` 内先执行 Registry refresh，再读取可用 `download-center` snapshot 并解析 due items。GitHub adapter 的 origin 固定为 `https://api.github.com`，path 固定为 `/repos/{owner}/{repo}/releases/latest`，validated owner/repo component 会 URL encode；timeout 为 10000 ms，`redirect: "manual"`，response body 最大 524288 bytes，assets 最多 100，tag 最长 128，asset filename 最长 255，URL 最长 2048。当前实现不使用 GitHub token。Selected `browser_download_url` 必须是无 userinfo/query/fragment 的 `https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}`。
 
-派生状态固定 key 为 `registry:download-center:resolved:v1`，schema version 为 `1`。只保存 normalized public item、config fingerprint、`lastAttemptAt`、`resolvedAt` 与 `expiresAt`；不保存 raw GitHub/Registry body、mirror template、repository matcher、GitHub/V2Board credential、user/account/entitlement/subscription data 或 arbitrary provider payload。刷新间隔以 `lastAttemptAt` 计算，避免每个 Cron tick 重试；成功替换 item LKG，失败时保留同一 config fingerprint 下尚未超过 `maxStaleHours` 的 prior LKG。过期 LKG、无 LKG、config 改变后解析失败、disabled/removed item 均不公开。派生状态 corrupt/missing 时 fail safe，完整 KV 删除后可由 Registry + GitHub 重新构建。
+单次 scheduled resolution 使用 bounded in-memory normalized `owner/repo` Promise cache。多个 due items 共享 repository 时只发起一次 latest-release request；canonical seven-item run 最多请求三个 repositories，而不是七次。Repository failure 只影响引用该 repository 的 items，不阻断其他 repositories。Cache 不持久化，也不建立新的 repository authority。
+
+派生状态继续使用固定 key `registry:download-center:resolved:v1`，payload schema version 升为 `2`。旧 schema-v1 payload 被视为 corrupt/unavailable 并返回 empty collection，直到下一次 scheduled 安全重建。状态只保存 normalized public item（其中 URL 已是 provider-prefixed output）、effective config fingerprint、`lastAttemptAt`、`resolvedAt` 与 `expiresAt`；不保存 standalone original GitHub URL field、raw GitHub/Registry body、provider `baseUrl`、repository matcher、GitHub/V2Board credential、user/account/entitlement/subscription data 或 arbitrary provider payload。
+
+Effective fingerprint 包含 item config、两个 selected provider 的 ID/label/type/baseUrl 以及配置顺序。Provider base URL、label、selected IDs 或顺序变化时，旧 generated URLs 不再匹配新 config，不能继续作为 authoritative LKG。刷新间隔以 `lastAttemptAt` 计算，避免每个 Cron tick 重试；成功替换 item LKG，GitHub failure 时只保留同一 effective fingerprint 下尚未超过 `maxStaleHours` 的 prior LKG。过期 LKG、无 LKG、config/provider 改变后解析失败、disabled/removed item 均不公开。派生状态 corrupt/missing 时 fail safe，完整 KV 删除后可由 Registry + GitHub 重新构建。
 
 ### Traffic History
 

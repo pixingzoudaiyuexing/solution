@@ -5,8 +5,9 @@ import type {
 import type { DownloadItem } from '../contract/v1/downloads';
 import {
   parseGitHubRepository,
-  renderMirrorUrl,
+  renderGithubUrlPrefixDownload,
   type DownloadCenterItemConfig,
+  type SelectedDownloadProviders,
 } from './modules/download-center';
 
 export type DownloadResolutionErrorCode =
@@ -104,7 +105,8 @@ export function isSafeGitHubDownloadUrl(input: {
 
 export function resolveDownloadItem(
   config: DownloadCenterItemConfig,
-  release: GitHubLatestRelease
+  release: GitHubLatestRelease,
+  providers: SelectedDownloadProviders
 ): DownloadItem {
   const asset = selectReleaseAsset(release.assets, config.github.assetMatch);
   if (
@@ -120,21 +122,16 @@ export function resolveDownloadItem(
   return {
     id: config.id,
     label: config.label.default,
-    platform: config.platform ?? null,
+    platform: config.platform,
     arch: config.arch ?? null,
     version: release.tagName,
     publishedAt: release.publishedAt,
-    downloadUrl: asset.downloadUrl,
     filename: asset.name,
     sizeBytes: asset.sizeBytes,
-    mirrors: config.mirrors.map((mirror) => ({
-      id: mirror.id,
-      label: mirror.label,
-      url: renderMirrorUrl(mirror.template, {
-        ...release.repository,
-        tag: release.tagName,
-        filename: asset.name,
-      }),
-    })),
+    downloads: providers.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      url: renderGithubUrlPrefixDownload(provider.baseUrl, asset.downloadUrl),
+    })) as DownloadItem['downloads'],
   };
 }

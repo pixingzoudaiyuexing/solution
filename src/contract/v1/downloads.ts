@@ -1,4 +1,6 @@
-export interface DownloadMirror {
+export type DownloadPlatform = 'windows' | 'macos' | 'android' | 'linux';
+
+export interface DownloadOption {
   id: string;
   label: string;
   url: string;
@@ -7,14 +9,13 @@ export interface DownloadMirror {
 export interface DownloadItem {
   id: string;
   label: string;
-  platform: string | null;
+  platform: DownloadPlatform;
   arch: string | null;
   version: string;
   publishedAt: string | null;
-  downloadUrl: string;
   filename: string;
   sizeBytes: number;
-  mirrors: DownloadMirror[];
+  downloads: [DownloadOption, DownloadOption];
 }
 
 export interface DownloadsSuccessResponse {

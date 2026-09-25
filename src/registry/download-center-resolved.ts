@@ -5,49 +5,45 @@ import { isStableId } from './stable-id';
 import { parseStrictJson } from './strict-json';
 
 export const DOWNLOAD_CENTER_RESOLVED_KEY = 'registry:download-center:resolved:v1';
-export const DOWNLOAD_CENTER_RESOLVED_SCHEMA_VERSION = 1;
+export const DOWNLOAD_CENTER_RESOLVED_SCHEMA_VERSION = 2;
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const UNSAFE_PRESENTATION_TEXT = /[<>\u0000-\u001f\u007f-\u009f]/;
 const timestampSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const plainText = (max: number) =>
-  z.string().min(1).max(max).refine((value) => !CONTROL.test(value));
 const safePresentationText = (max: number) =>
   z.string().min(1).max(max).refine((value) => !UNSAFE_PRESENTATION_TEXT.test(value));
-const httpsUrl = z.string().max(2048).refine((value) => {
+const providerDownloadUrl = z.string().max(4096).refine((value) => {
+  if (CONTROL.test(value)) return false;
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
     return (
       url.protocol === 'https:' &&
       url.hostname.length > 0 &&
+      hostname !== 'github.com' &&
+      hostname !== 'api.github.com' &&
       url.username.length === 0 &&
       url.password.length === 0 &&
-      url.hash.length === 0
+      url.search.length === 0 &&
+      url.hash.length === 0 &&
+      value.includes('https://github.com/') &&
+      value.includes('/releases/download/')
     );
   } catch {
     return false;
   }
-});
-const githubDownloadUrl = httpsUrl.refine((value) => {
-  const url = new URL(value);
-  return (
-    url.hostname.toLowerCase() === 'github.com' &&
-    url.port === '' &&
-    url.search === '' &&
-    /\/releases\/download\//.test(url.pathname)
-  );
 });
 const isoTimestamp = z.string().max(64).refine((value) => {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 });
 
-const mirrorSchema = z
+const downloadOptionSchema = z
   .object({
     id: z.string().refine(isStableId),
     label: safePresentationText(160),
-    url: httpsUrl,
+    url: providerDownloadUrl,
   })
   .strict();
 
@@ -55,16 +51,24 @@ export const resolvedDownloadItemSchema: z.ZodType<DownloadItem> = z
   .object({
     id: z.string().refine(isStableId),
     label: safePresentationText(160),
-    platform: safePresentationText(64).nullable(),
+    platform: z.enum(['windows', 'macos', 'android', 'linux']),
     arch: safePresentationText(64).nullable(),
     version: safePresentationText(128),
     publishedAt: isoTimestamp.nullable(),
-    downloadUrl: githubDownloadUrl,
     filename: safePresentationText(255),
     sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-    mirrors: z.array(mirrorSchema).max(8),
+    downloads: z.tuple([downloadOptionSchema, downloadOptionSchema]),
   })
-  .strict();
+  .strict()
+  .superRefine((item, ctx) => {
+    if (item.downloads[0].id === item.downloads[1].id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['downloads'],
+        message: 'Download provider IDs must be distinct',
+      });
+    }
+  });
 
 const resolvedEntrySchema = z
   .object({

@@ -7,44 +7,63 @@ import {
   resolveDownloadItem,
   selectReleaseAsset,
 } from '../src/registry/download-center-resolution';
-import { downloadCenterSnapshotSchema } from '../src/registry/modules/download-center';
+import {
+  downloadCenterSnapshotSchema,
+  getDefaultDownloadProviders,
+} from '../src/registry/modules/download-center';
 
-const matcher = {
-  prefix: null,
-  suffix: '.dmg',
-  contains: ['client'],
-  include: ['arm64', 'aarch64'],
-  exclude: ['sha256', 'symbols'],
-};
+const providers = [
+  {
+    id: 'hubproxy-self',
+    label: '高速下载',
+    type: 'github-url-prefix',
+    baseUrl: 'https://git.hubproxy.top/',
+  },
+  {
+    id: 'gh-proxy-public',
+    label: '备用下载',
+    type: 'github-url-prefix',
+    baseUrl: 'https://gh-proxy.com/',
+  },
+] as const;
 
-function config() {
-  return downloadCenterSnapshotSchema.parse({
+function config(suffix = '_x64-setup.exe') {
+  const snapshot = downloadCenterSnapshotSchema.parse({
+    downloadProviders: providers,
+    defaultDownloadProviderIds: ['hubproxy-self', 'gh-proxy-public'],
     items: [
       {
-        id: 'desktop-client',
-        label: { default: 'Desktop Client' },
+        id: 'windows',
+        label: { default: 'Windows' },
         audience: 'public',
-        platform: 'macos',
-        arch: 'arm64',
-        github: { repository: 'owner/repo', release: 'latest', assetMatch: matcher },
+        platform: 'windows',
+        arch: 'x64',
+        github: {
+          repository: 'clash-verge-rev/clash-verge-rev',
+          release: 'latest',
+          assetMatch: {
+            prefix: null,
+            suffix,
+            contains: [],
+            include: [],
+            exclude: [],
+          },
+        },
         refreshHours: 24,
         maxStaleHours: 168,
-        mirrors: [
-          {
-            id: 'mirror-a',
-            label: 'Mirror A',
-            template: 'https://mirror.example/{owner}/{repo}/{tag}/{filename}',
-          },
-        ],
       },
     ],
-  }).items[0];
+  });
+  return {
+    item: snapshot.items[0],
+    providers: getDefaultDownloadProviders(snapshot),
+  };
 }
 
 function release(assets: GitHubLatestRelease['assets']): GitHubLatestRelease {
   return {
-    repository: { owner: 'owner', repo: 'repo' },
-    tagName: 'v1.2.3',
+    repository: { owner: 'clash-verge-rev', repo: 'clash-verge-rev' },
+    tagName: 'v2.5.5',
     publishedAt: '2026-09-25T00:00:00.000Z',
     assets,
   };
@@ -53,78 +72,108 @@ function release(assets: GitHubLatestRelease['assets']): GitHubLatestRelease {
 const asset = (name: string, url?: string) => ({
   name,
   downloadUrl:
-    url ?? `https://github.com/owner/repo/releases/download/v1.2.3/${name}`,
+    url ??
+    `https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/${name}`,
   sizeBytes: 123,
 });
 
 describe('deterministic Download Center resolution', () => {
-  it('applies case-insensitive literal prefix/suffix/contains/include/exclude semantics', () => {
-    expect(assetMatches('CLIENT-ARM64.DMG', matcher)).toBe(true);
-    expect(assetMatches('client-x64.dmg', matcher)).toBe(false);
-    expect(assetMatches('client-arm64-symbols.dmg', matcher)).toBe(false);
-    expect(assetMatches('arm64.dmg', matcher)).toBe(false);
+  it('keeps strict case-insensitive literal matcher semantics', () => {
+    const matcher = {
+      prefix: 'clash',
+      suffix: '.exe',
+      contains: ['2.5.5'],
+      include: ['x64', 'amd64'],
+      exclude: ['sha256', 'symbols'],
+    };
+    expect(assetMatches('CLASH.VERGE_2.5.5_X64-SETUP.EXE', matcher)).toBe(true);
+    expect(assetMatches('clash-verge_2.5.5_arm64.exe', matcher)).toBe(false);
+    expect(assetMatches('clash-verge_2.5.5_x64-symbols.exe', matcher)).toBe(false);
   });
 
-  it('returns the only matching asset regardless of source array position', () => {
-    const selected = selectReleaseAsset(
-      [asset('client-x64.dmg'), asset('client-arm64.dmg'), asset('client-arm64.sha256')],
-      matcher
-    );
-    expect(selected.name).toBe('client-arm64.dmg');
+  it.each([
+    ['Windows', '_x64-setup.exe', 'Clash.Verge_2.5.5_x64-setup.exe'],
+    ['Mac', 'ClashX.Meta.zip', 'ClashX.Meta.zip'],
+    ['Android', '-meta-universal-release.apk', 'cmfa-2.11.4-meta-universal-release.apk'],
+    ['Linux deb x64', '_amd64.deb', 'clash-verge_2.5.5_amd64.deb'],
+    ['Linux deb arm64', '_arm64.deb', 'clash-verge_2.5.5_arm64.deb'],
+    ['Linux rpm x64', '.x86_64.rpm', 'clash-verge-2.5.5.x86_64.rpm'],
+    ['Linux rpm arm64', '.aarch64.rpm', 'clash-verge-2.5.5.aarch64.rpm'],
+  ])('matches the canonical %s suffix', (_case, suffix, filename) => {
+    expect(assetMatches(filename, config(suffix).item.github.assetMatch)).toBe(true);
   });
 
-  it('fails for zero matches and never selects the first asset', () => {
-    expect(() => selectReleaseAsset([asset('client-x64.dmg')], matcher)).toThrowError(
+  it('fails for zero or multiple candidates without array-order selection', () => {
+    const matcher = config().item.github.assetMatch;
+    expect(() => selectReleaseAsset([asset('other.exe')], matcher)).toThrowError(
       expect.objectContaining<Partial<DownloadResolutionError>>({ code: 'NO_MATCH' })
     );
-  });
-
-  it('fails for multiple matches without using array order as a tiebreaker', () => {
     expect(() =>
-      selectReleaseAsset([asset('client-arm64.dmg'), asset('client-aarch64.dmg')], matcher)
+      selectReleaseAsset(
+        [
+          asset('one_x64-setup.exe'),
+          asset('two_x64-setup.exe'),
+        ],
+        matcher
+      )
     ).toThrowError(
-      expect.objectContaining<Partial<DownloadResolutionError>>({ code: 'AMBIGUOUS_MATCH' })
+      expect.objectContaining<Partial<DownloadResolutionError>>({
+        code: 'AMBIGUOUS_MATCH',
+      })
     );
   });
 
   it.each([
-    'http://github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg',
-    'https://user@github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg',
-    'https://objects.githubusercontent.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg',
-    'https://github.com/other/repo/releases/download/v1.2.3/client-arm64.dmg',
-    'https://github.com/owner/repo/releases/download/other/client-arm64.dmg',
-    'https://github.com/owner/repo/releases/download/v1.2.3/other.dmg',
-    'https://github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg?token=x',
+    'http://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe',
+    'https://user@github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe',
+    'https://objects.githubusercontent.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe',
+    'https://github.com/other/repo/releases/download/v2.5.5/Clash.Verge_2.5.5_x64-setup.exe',
+    'https://github.com/clash-verge-rev/clash-verge-rev/releases/download/other/Clash.Verge_2.5.5_x64-setup.exe',
+    'https://github.com/clash-verge-rev/clash-verge-rev/releases/download/v2.5.5/other.exe',
   ])('rejects unsafe selected download URL %s', (url) => {
     expect(
       isSafeGitHubDownloadUrl({
         url,
-        repository: 'owner/repo',
-        tag: 'v1.2.3',
-        filename: 'client-arm64.dmg',
+        repository: 'clash-verge-rev/clash-verge-rev',
+        tag: 'v2.5.5',
+        filename: 'Clash.Verge_2.5.5_x64-setup.exe',
       })
     ).toBe(false);
   });
 
-  it('creates the exact neutral DTO and rendered mirror URLs', () => {
-    expect(resolveDownloadItem(config(), release([asset('client-arm64.dmg')]))).toEqual({
-      id: 'desktop-client',
-      label: 'Desktop Client',
-      platform: 'macos',
-      arch: 'arm64',
-      version: 'v1.2.3',
+  it('returns exactly two provider URLs in configured order without old fields', () => {
+    const source = asset('Clash.Verge_2.5.5_x64-setup.exe');
+    const selected = config();
+    const resolved = resolveDownloadItem(
+      selected.item,
+      release([source]),
+      selected.providers
+    );
+    expect(resolved).toEqual({
+      id: 'windows',
+      label: 'Windows',
+      platform: 'windows',
+      arch: 'x64',
+      version: 'v2.5.5',
       publishedAt: '2026-09-25T00:00:00.000Z',
-      downloadUrl:
-        'https://github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg',
-      filename: 'client-arm64.dmg',
+      filename: 'Clash.Verge_2.5.5_x64-setup.exe',
       sizeBytes: 123,
-      mirrors: [
+      downloads: [
         {
-          id: 'mirror-a',
-          label: 'Mirror A',
-          url: 'https://mirror.example/owner/repo/v1.2.3/client-arm64.dmg',
+          id: 'hubproxy-self',
+          label: '高速下载',
+          url: `https://git.hubproxy.top/${source.downloadUrl}`,
+        },
+        {
+          id: 'gh-proxy-public',
+          label: '备用下载',
+          url: `https://gh-proxy.com/${source.downloadUrl}`,
         },
       ],
     });
+    expect('downloadUrl' in resolved).toBe(false);
+    expect('mirrors' in resolved).toBe(false);
+    expect(resolved.downloads.every((entry) => entry.url !== source.downloadUrl)).toBe(true);
+    expect(resolved.downloads.every((entry) => entry.url.endsWith(source.downloadUrl))).toBe(true);
   });
 });
