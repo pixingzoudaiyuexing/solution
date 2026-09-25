@@ -1546,6 +1546,10 @@ Scheduled path 在现有单一 `waitUntil` 内先执行 Registry refresh，再�
 
 Effective fingerprint 包含 item config、两个 selected provider 的 ID/label/type/baseUrl 以及配置顺序。Provider base URL、label、selected IDs 或顺序变化时，旧 generated URLs 不再匹配新 config，不能继续作为 authoritative LKG。刷新间隔以 `lastAttemptAt` 计算，避免每个 Cron tick 重试；成功替换 item LKG，GitHub failure 时只保留同一 effective fingerprint 下尚未超过 `maxStaleHours` 的 prior LKG。过期 LKG、无 LKG、config/provider 改变后解析失败、disabled/removed item 均不公开。派生状态 corrupt/missing 时 fail safe，完整 KV 删除后可由 Registry + GitHub 重新构建。
 
+Scheduled resolver 还可写入独立 internal diagnostic key `registry:download-center:diagnostic:v1`，schema version `1`。该记录最多包含 50 个当前 run 实际 attempted 的 unique normalized `owner/repo`，每项只有 `repository`、`attemptedAt`、bounded `elapsedMs`、`status=success|error`，error 时额外允许 strict `TIMEOUT | RATE_LIMITED | UPSTREAM_ERROR | INVALID_RESPONSE | RESPONSE_TOO_LARGE | UNEXPECTED`。Repository fetch 成功但 item matcher失败仍记录 repository `success`；共享 rejected Promise 只记录一次。No-due run 不用 empty record覆盖已有证据。Diagnostic persistence 是 best-effort，失败不得改变 resolved persistence、success/fallback 或 public availability。
+
+Diagnostic key 不属于 Public Contract；Browser route 不读取它，也没有新增 health/debug endpoint。Public DTO 永远不公开 repository diagnostic、errorCode、elapsedMs、attemptedAt 或 GitHub status。该 key 不保存 raw GitHub payload/body/header、asset array、browser URL、provider URL、Registry raw body、authorization、secret、stack 或 exception message，也不是第二 authority。
+
 ### Traffic History
 
 ```http

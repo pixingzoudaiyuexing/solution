@@ -127,3 +127,13 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Canonical public groups are Windows, Mac, Android and multiple Linux items for Aureole `Linux GUI` grouping. iOS is reserved for a future separately approved non-download destination and is not emitted in v1.
 - `/api/v1` source route count is `52`; no new public health/registry/refresh/check/control-plane endpoint exists.
 - V2Board, Aureole, Production, DNS and deployment configuration are unchanged. Production runtime remains NOT VERIFIED.
+
+## REG-M03 GitHub Diagnostics Local Candidate
+
+- State: local implementation candidate / mandatory Antigravity Gemini local review pending / NOT MERGED / NOT DEPLOYED.
+- Fixed internal key: `registry:download-center:diagnostic:v1`, schema v1, maximum 50 unique normalized repositories.
+- Records only attempted repository identity, attemptedAt, bounded elapsedMs, success/error and strict adapter error code (`TIMEOUT`, `RATE_LIMITED`, `UPSTREAM_ERROR`, `INVALID_RESPONSE`, `RESPONSE_TOO_LARGE`, `UNEXPECTED`).
+- Repository Promise dedup remains unchanged; one shared request produces one diagnostic result. Matcher failure after successful repository fetch remains repository `success`.
+- No-due run preserves the last useful diagnostic evidence. Diagnostic write failure is ignored and cannot alter resolved success, LKG fallback or Public API availability.
+- No raw GitHub/Registry/provider payload, response body/header, URL, secret, stack or error message is persisted. No Public diagnostic/health/debug route exists.
+- This candidate adds observability only; it does not identify or fix the scheduled GitHub root cause, change the 10-second timeout, add retry/token, or alter the Download Center public contract.

@@ -4,6 +4,7 @@ import type {
   DownloadsSuccessResponse,
 } from '../src/contract/v1/downloads';
 import { app } from '../src/index';
+import { DOWNLOAD_CENTER_DIAGNOSTIC_KEY } from '../src/registry/download-center-diagnostic';
 import {
   DOWNLOAD_CENTER_RESOLVED_KEY,
   persistDownloadCenterResolvedState,
@@ -72,6 +73,22 @@ describe('GET /api/v1/downloads', () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     const kv = await kvWith([{ id: 'windows' }]);
+    kv.values.set(
+      DOWNLOAD_CENTER_DIAGNOSTIC_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        checkedAt: now,
+        repositories: [
+          {
+            repository: 'owner/repo',
+            attemptedAt: now,
+            elapsedMs: 10_000,
+            status: 'error',
+            errorCode: 'TIMEOUT',
+          },
+        ],
+      })
+    );
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
 
@@ -112,6 +129,27 @@ describe('GET /api/v1/downloads', () => {
       ok: true,
       data: { items: [{ id: 'windows' }] },
     });
+  });
+
+  it('ignores corrupt internal diagnostics without outbound requests', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const kv = await kvWith([{ id: 'windows' }]);
+    kv.values.set(DOWNLOAD_CENTER_DIAGNOSTIC_KEY, '{bad-json');
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+
+    const response = await app.request('/api/v1/downloads', undefined, {
+      REGISTRY_KV: kv.binding(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      data: { items: [{ id: 'windows' }] },
+    });
+    expect(kv.reads).toEqual([DOWNLOAD_CENTER_RESOLVED_KEY]);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each(['missing binding', 'missing state', 'corrupt state', 'old v1 state', 'expired state'])(
@@ -168,6 +206,10 @@ describe('GET /api/v1/downloads', () => {
       'downloadUrl',
       'mirrors',
       'health',
+      'diagnostic',
+      'errorCode',
+      'elapsedMs',
+      'attemptedAt',
     ]) {
       expect(text).not.toContain(forbidden);
     }

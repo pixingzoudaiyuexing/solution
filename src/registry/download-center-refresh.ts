@@ -1,5 +1,9 @@
 import type { Env } from '../config/env';
-import { GitHubReleasesAdapter } from '../adapters/github/releases';
+import {
+  GitHubReleaseError,
+  GitHubReleasesAdapter,
+  type GitHubLatestRelease,
+} from '../adapters/github/releases';
 import { registryOperationalDefinitions } from './definitions';
 import {
   downloadCenterOperationalDefinition,
@@ -9,6 +13,12 @@ import {
 } from './modules/download-center';
 import { readRegistryModuleSnapshot } from './operational';
 import { resolveDownloadItem } from './download-center-resolution';
+import {
+  DOWNLOAD_CENTER_DIAGNOSTIC_MAX_ELAPSED_MS,
+  persistDownloadCenterDiagnosticState,
+  type DownloadCenterDiagnosticErrorCode,
+  type DownloadCenterRepositoryDiagnostic,
+} from './download-center-diagnostic';
 import {
   DOWNLOAD_CENTER_RESOLVED_SCHEMA_VERSION,
   downloadCenterConfigFingerprint,
@@ -25,6 +35,11 @@ export interface DownloadCenterRefreshOptions {
   fetcher?: typeof fetch;
   now?: () => number;
   timeoutMs?: number;
+  releaseAdapter?: {
+    latest(repository: string): Promise<GitHubLatestRelease>;
+  };
+  diagnosticNow?: () => number;
+  elapsedNow?: () => number;
 }
 
 function safeNow(now: () => number): number {
@@ -49,6 +64,36 @@ function resolutionDue(
 ): boolean {
   if (!previous || previous.lastAttemptAt > now) return true;
   return now - previous.lastAttemptAt >= item.refreshHours * 60 * 60 * 1000;
+}
+
+function safeObservedTimestamp(clock: () => number, fallback: number): number {
+  try {
+    const value = clock();
+    return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeElapsedClock(clock: () => number): number | null {
+  try {
+    const value = clock();
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function boundedElapsed(startedAt: number | null, endedAt: number | null): number {
+  if (startedAt === null || endedAt === null) return 0;
+  return Math.min(
+    DOWNLOAD_CENTER_DIAGNOSTIC_MAX_ELAPSED_MS,
+    Math.max(0, Math.floor(endedAt - startedAt))
+  );
+}
+
+function diagnosticErrorCode(error: unknown): DownloadCenterDiagnosticErrorCode {
+  return error instanceof GitHubReleaseError ? error.code : 'UNEXPECTED';
 }
 
 export async function refreshDownloadCenterResolvedState(
@@ -83,11 +128,15 @@ export async function refreshDownloadCenterResolvedState(
     loaded.status === 'valid' && loaded.state.generatedAt <= now
       ? loaded.state.items
       : [];
-  const adapter = new GitHubReleasesAdapter(
-    options.fetcher ?? fetch,
-    options.timeoutMs
-  );
+  const adapter =
+    options.releaseAdapter ??
+    new GitHubReleasesAdapter(options.fetcher ?? fetch, options.timeoutMs);
+  const diagnosticNow = options.diagnosticNow ?? Date.now;
+  const elapsedNow =
+    options.elapsedNow ??
+    (() => (typeof performance === 'undefined' ? Date.now() : performance.now()));
   const selectedProviders = getDefaultDownloadProviders(snapshot.config);
+  const repositoryDiagnostics: DownloadCenterRepositoryDiagnostic[] = [];
   const releasesByRepository = new Map<
     string,
     ReturnType<GitHubReleasesAdapter['latest']>
@@ -97,7 +146,33 @@ export async function refreshDownloadCenterResolvedState(
     if (key === null) throw new Error('Invalid GitHub repository');
     const existing = releasesByRepository.get(key);
     if (existing) return existing;
-    const created = adapter.latest(item.github.repository);
+    const attemptedAt = safeObservedTimestamp(diagnosticNow, now);
+    const startedAt = safeElapsedClock(elapsedNow);
+    const created = adapter.latest(item.github.repository).then(
+      (release) => {
+        try {
+          repositoryDiagnostics.push({
+            repository: key,
+            attemptedAt,
+            elapsedMs: boundedElapsed(startedAt, safeElapsedClock(elapsedNow)),
+            status: 'success',
+          });
+        } catch {}
+        return release;
+      },
+      (error) => {
+        try {
+          repositoryDiagnostics.push({
+            repository: key,
+            attemptedAt,
+            elapsedMs: boundedElapsed(startedAt, safeElapsedClock(elapsedNow)),
+            status: 'error',
+            errorCode: diagnosticErrorCode(error),
+          });
+        } catch {}
+        throw error;
+      }
+    );
     releasesByRepository.set(key, created);
     return created;
   };
@@ -147,6 +222,23 @@ export async function refreshDownloadCenterResolvedState(
     });
   } catch {
     return { ok: false, code: 'KV_UNAVAILABLE' };
+  }
+  if (repositoryDiagnostics.length > 0) {
+    const latestAttemptedAt = Math.max(
+      now,
+      ...repositoryDiagnostics.map((item) => item.attemptedAt)
+    );
+    const checkedAt = Math.max(
+      latestAttemptedAt,
+      safeObservedTimestamp(diagnosticNow, latestAttemptedAt)
+    );
+    try {
+      await persistDownloadCenterDiagnosticState(kv, {
+        schemaVersion: 1,
+        checkedAt,
+        repositories: repositoryDiagnostics,
+      });
+    } catch {}
   }
   return {
     ok: true,
