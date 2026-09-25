@@ -14,6 +14,7 @@
 | `GET /api/v1/config/account`           | Yes            | `user/comm/config`              |
 | `GET /api/v1/config/runtime`           | No             | Registry operational snapshot   |
 | `GET /api/v1/announcements`            | Optional Bearer | Registry operational snapshot  |
+| `GET /api/v1/downloads`                | No             | Derived Download Center LKG     |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
 | `GET /api/v1/me/preferences`           | Yes            | `user/info`                     |
@@ -1410,7 +1411,99 @@ Registry module identity 是 `registry:announcements`，schema version 为 `1`�
 
 Item ID 必须为 stable ID；title 1-160 characters、body 1-4000 characters，均为 trim 后 pure text，拒绝 HTML-like `<`/`>`、控制字符和未知字段。每个 module 最多 100 items；sort 为 0-1000000 的整数。`enabled: false` item 不进入 safe snapshot。模块明确 disabled 或 absent 时会清除 LKG，route 返回 HTTP 200 empty `items`，不能重新显示旧公告。缺失、corrupt、unavailable 或超过 freshness bound 的 snapshot 同样返回 HTTP 200 empty `items`。当前实现不支持有效时间、placement、dismiss persistence、localized editing、富文本、audience group/plan/role rules、pagination、push/email/Telegram 或管理 CRUD。
 
-M12 是 additive v1 extension；当前 `/api/v1` source route count 为 `51`。
+M12 是 additive v1 extension；M12 完成时 `/api/v1` source route count 为 `51`。REG-M03 Download Center 实现候选新增一个匿名 route，当前 source route count 为 `52`。
+
+### REG-M03 Download Center
+
+```http
+GET /api/v1/downloads
+```
+
+本接口无需 Bearer，始终设置 `Cache-Control: no-store`。Browser data plane 只读取现有 `REGISTRY_KV` 中独立、严格验证的派生 Download LKG，不调用 Admin Knowledge、Registry refresh、V2Board、GitHub API 或 mirror URL。Missing/corrupt/unavailable KV、无可用 item 或全部 item 过期时返回 HTTP 200 empty collection；单个 item 不可用不会使其他 item 失败。
+
+Success：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "items": [
+      {
+        "id": "desktop-client",
+        "label": "Desktop Client",
+        "platform": "macos",
+        "arch": "arm64",
+        "version": "v1.2.3",
+        "publishedAt": "2026-09-25T00:00:00.000Z",
+        "downloadUrl": "https://github.com/owner/repo/releases/download/v1.2.3/client-arm64.dmg",
+        "filename": "client-arm64.dmg",
+        "sizeBytes": 12345678,
+        "mirrors": [
+          {
+            "id": "mirror-a",
+            "label": "Mirror A",
+            "url": "https://mirror.example/download/owner/repo/v1.2.3/client-arm64.dmg"
+          }
+        ]
+      }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`platform`、`arch` 与 `publishedAt` 始终存在，缺失时为 `null`。`mirrors` 始终为数组。Public DTO 不包含 Registry raw config、repository/matcher、mirror template、GitHub raw response/token、KV key、fingerprint、attempt/expiry timestamp、内部 health 或 failure cause。
+
+Registry module identity 是 `registry:download-center`，schema version 为 `1`，maximum exposure 为 `public`。配置为 strict schema：
+
+```json
+{
+  "kind": "aureole.registry",
+  "moduleId": "download-center",
+  "schemaVersion": 1,
+  "enabled": true,
+  "config": {
+    "items": [
+      {
+        "id": "desktop-client",
+        "enabled": true,
+        "label": { "default": "Desktop Client" },
+        "audience": "public",
+        "platform": "macos",
+        "arch": "arm64",
+        "github": {
+          "repository": "owner/repo",
+          "release": "latest",
+          "assetMatch": {
+            "prefix": null,
+            "suffix": ".dmg",
+            "contains": [],
+            "include": ["arm64"],
+            "exclude": ["sha256", "symbols"]
+          }
+        },
+        "refreshHours": 24,
+        "maxStaleHours": 168,
+        "mirrors": [
+          {
+            "id": "mirror-a",
+            "label": "Mirror A",
+            "template": "https://mirror.example/download/{owner}/{repo}/{tag}/{filename}"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+硬边界：最多 50 items；`label.default` 为 1-160 safe plain-text characters；`audience` 仅允许 literal `public`；`platform`/`arch` 为 optional 1-64 safe presentation characters；repository 仅允许 trim 后单一 `owner/repo`，总长最多 140，owner 最多 39，repo 最多 100，不允许 scheme/origin/query/fragment/extra slash/backslash/traversal；release 仅允许 literal `latest`。每个 matcher array 最多 8 个 1-128 字符 literal；不支持 regex/expression/JavaScript。`refreshHours` 为整数 `1..168`；`maxStaleHours` 为整数 `refreshHours..168`。每 item 最多 8 mirrors，mirror template 最长 2048，只允许 HTTPS、无 userinfo/fragment，并只允许 `{owner}`、`{repo}`、`{tag}`、`{filename}`；Solution 只渲染并返回 URL，不 server-side fetch mirror。
+
+Asset matching 对 filename 统一使用 case-insensitive literal comparison：prefix 必须位于开头，suffix 必须位于结尾，contains 全部出现，非空 include 至少一个出现，exclude 全部不得出现。恰好一个 candidate 才成功；零个或多个均使该 item unavailable，绝不按 GitHub asset array order 选择。
+
+Scheduled path 在现有单一 `waitUntil` 内先执行 Registry refresh，再读取可用 `download-center` snapshot 并解析 due items。GitHub adapter 的 origin 固定为 `https://api.github.com`，path 固定为 `/repos/{owner}/{repo}/releases/latest`，validated owner/repo component 会 URL encode；timeout 为 10000 ms，`redirect: "manual"`，response body 最大 524288 bytes，assets 最多 100，tag 最长 128，asset filename 最长 255，URL 最长 2048。当前实现不使用 GitHub token。Selected `browser_download_url` 必须是无 userinfo/query/fragment 的 `https://github.com/{owner}/{repo}/releases/download/{tag}/{filename}`。
+
+派生状态固定 key 为 `registry:download-center:resolved:v1`，schema version 为 `1`。只保存 normalized public item、config fingerprint、`lastAttemptAt`、`resolvedAt` 与 `expiresAt`；不保存 raw GitHub/Registry body、mirror template、repository matcher、GitHub/V2Board credential、user/account/entitlement/subscription data 或 arbitrary provider payload。刷新间隔以 `lastAttemptAt` 计算，避免每个 Cron tick 重试；成功替换 item LKG，失败时保留同一 config fingerprint 下尚未超过 `maxStaleHours` 的 prior LKG。过期 LKG、无 LKG、config 改变后解析失败、disabled/removed item 均不公开。派生状态 corrupt/missing 时 fail safe，完整 KV 删除后可由 Registry + GitHub 重新构建。
 
 ### Traffic History
 

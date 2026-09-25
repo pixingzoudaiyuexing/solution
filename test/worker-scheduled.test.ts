@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker, { app, scheduled } from '../src/index';
 import { v1Router } from '../src/routes/v1';
 import { REGISTRY_SNAPSHOT_KEY } from '../src/registry/operational';
+import { DOWNLOAD_CENTER_RESOLVED_KEY } from '../src/registry/download-center-resolved';
 import { FakeKV } from './helpers/fake-kv';
 
 function executionContext(): {
@@ -35,11 +36,11 @@ afterEach(() => {
 });
 
 describe('Worker fetch and scheduled boundaries', () => {
-  it('preserves default Worker fetch delegation and the 51-route contract', async () => {
+  it('preserves default Worker fetch delegation and the 52-route contract', async () => {
     expect(
       new Set(v1Router.routes.map((route) => `${route.method} ${route.path}`))
         .size
-    ).toBe(51);
+    ).toBe(52);
     const response = await worker.fetch!(
       new Request('https://gateway.example/api/v1/not-found'),
       {},
@@ -74,6 +75,7 @@ describe('Worker fetch and scheduled boundaries', () => {
       'https://backend.example/api/v1/secure-admin/knowledge/fetch'
     );
     expect(kv.values.has(REGISTRY_SNAPSHOT_KEY)).toBe(true);
+    expect(kv.values.has(DOWNLOAD_CENTER_RESOLVED_KEY)).toBe(true);
   });
 
   it('fails safely without REGISTRY_KV and does not call the Admin source', async () => {

@@ -9,7 +9,7 @@ Gemini final review: PASS (BLOCKER: 0, HIGH: 0)
 A2: PASS / COMPLETE / CLOSED / RE-FROZEN
 Reviewed A2 runtime/code anchor: f07770167a823e95665600c59e9e6e4f6d5d4927
 Gemini A2 follow-up review: PASS (BLOCKER: 0, HIGH: 0)
-Public routes: 48
+Public routes: 52 (including REG-M03 implementation candidate)
 Production: NOT DEPLOYED
 Control Plane deployment secrets: NOT PROVISIONED
 Live Admin Runtime: NOT VERIFIED
@@ -22,6 +22,8 @@ Gemini A3 post-code review: PASS (BLOCKER: 0, HIGH: 0, MEDIUM: 0, LOW: 0)
 A3 Production KV namespace / binding: NOT PROVISIONED
 A3 Production Cron: NOT ACTIVATED
 A4: NOT STARTED / NOT AUTHORIZED
+REG-M03 Download Center: IMPLEMENTATION CANDIDATE / MANDATORY GEMINI REVIEW PENDING
+REG-M03 Production deployment: NOT AUTHORIZED / NOT DEPLOYED
 ```
 
 Reviewed/current repository baseline before this reconciliation: `472635dbedb8efb23cb070ad827db970ddabf56f`. The docs-only reconciliation commit after A2 closure does not modify or re-review the A2 runtime/code anchor.
@@ -112,3 +114,14 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - Legacy CF-02 entries/entry-access, legacy access route, overview, rotate and advance remain unchanged. Aureole/V2Board/Production are unchanged.
 - State: `PASS / COMPLETE / CLOSED / RE-FROZEN`; Production remains `NOT AUTHORIZED / NOT DEPLOYED`.
 - M05 and REG-M07 remain `NOT IMPLEMENTED`; Aureole migration and CF-02 cleanup remain `NOT PERFORMED / NOT AUTHORIZED`; V2Board remains unchanged.
+
+## REG-M03 Download Center Implementation Candidate
+
+- Task state: implementation and local verification candidate only; mandatory Gemini post-code review remains required before merge/deployment.
+- Registry module: `download-center`, public exposure, schema v1, maximum 50 items, fixed `release=latest`, strict `owner/repo`, bounded literal matcher, refresh `1..168` hours and max stale `refreshHours..168` hours.
+- Fixed provider boundary: `https://api.github.com/repos/{owner}/{repo}/releases/latest`, 10-second timeout, manual redirects, 512 KiB response bound, 100 assets, no Registry-selected URL and no GitHub token implementation.
+- Derived key: `registry:download-center:resolved:v1`; normalized public metadata plus config fingerprint and attempt/resolution/expiry timestamps only. Raw Registry/GitHub payload, mirror template, credentials and business/user data are excluded.
+- Public API: anonymous `GET /api/v1/downloads`, HTTP 200 neutral collection, `Cache-Control: no-store`; unavailable items are omitted and missing/corrupt/expired state returns `items: []` without public cause leakage.
+- Scheduled boundary remains one `waitUntil`, internally sequencing Registry refresh and M03 resolution. Browser data plane makes no Admin/GitHub/V2Board/mirror request.
+- `/api/v1` source route count is `52`; no new public health/registry/refresh/check/control-plane endpoint exists.
+- V2Board, Aureole, Production, DNS and deployment configuration are unchanged. Production runtime remains NOT VERIFIED.

@@ -38,6 +38,7 @@ import { giftCardsRouter } from './v1/gift-cards';
 import { walletRouter } from './v1/wallet';
 import { configRouter } from './v1/config';
 import { announcementsRouter } from './v1/announcements';
+import { downloadsRouter } from './v1/downloads';
 
 const emailSchema = z.string().trim().email().max(254);
 const loginRequestSchema = z
@@ -220,5 +221,6 @@ v1Router.route('/gift-cards', giftCardsRouter);
 v1Router.route('/wallet', walletRouter);
 v1Router.route('/config', configRouter);
 v1Router.route('/announcements', announcementsRouter);
+v1Router.route('/downloads', downloadsRouter);
 
 export { v1Router };
