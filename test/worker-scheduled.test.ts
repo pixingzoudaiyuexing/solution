@@ -36,11 +36,11 @@ afterEach(() => {
 });
 
 describe('Worker fetch and scheduled boundaries', () => {
-  it('preserves default Worker fetch delegation and the 52-route contract', async () => {
-    expect(
-      new Set(v1Router.routes.map((route) => `${route.method} ${route.path}`))
-        .size
-    ).toBe(52);
+  it('preserves default Worker fetch delegation and the 54-route contract', async () => {
+    const routes = new Set(v1Router.routes.map((route) => `${route.method} ${route.path}`));
+    expect(routes.size).toBe(54);
+    expect(routes).toContain('GET /apple-ids');
+    expect(routes).toContain('POST /apple-ids/reveal');
     const response = await worker.fetch!(
       new Request('https://gateway.example/api/v1/not-found'),
       {},

@@ -39,6 +39,7 @@ import { walletRouter } from './v1/wallet';
 import { configRouter } from './v1/config';
 import { announcementsRouter } from './v1/announcements';
 import { downloadsRouter } from './v1/downloads';
+import { appleIdsRouter } from './v1/apple-ids';
 
 const emailSchema = z.string().trim().email().max(254);
 const loginRequestSchema = z
@@ -222,5 +223,6 @@ v1Router.route('/wallet', walletRouter);
 v1Router.route('/config', configRouter);
 v1Router.route('/announcements', announcementsRouter);
 v1Router.route('/downloads', downloadsRouter);
+v1Router.route('/apple-ids', appleIdsRouter);
 
 export { v1Router };

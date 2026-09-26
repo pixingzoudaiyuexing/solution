@@ -1,4 +1,5 @@
 import type { ErrorHandler } from 'hono';
+import { AppleAutoError } from '../adapters/appleauto/shared-page';
 import {
   GatewayError,
   publicErrorResponse,
@@ -65,6 +66,20 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(
       publicErrorResponse(err.code, err.publicMessage, id),
       err.status
+    );
+  }
+
+  if (err instanceof AppleAutoError) {
+    const code = err.code === 'PROVIDER_FAILURE'
+      ? 'APPLE_ID_PROVIDER_FAILURE'
+      : err.code === 'INVALID_RESPONSE'
+        ? 'APPLE_ID_UPSTREAM_INVALID'
+        : err.code === 'TIMEOUT'
+          ? 'UPSTREAM_TIMEOUT'
+          : 'APPLE_ID_UPSTREAM_UNREACHABLE';
+    return c.json(
+      publicErrorResponse(code, 'Apple ID provider unavailable', id),
+      err.code === 'TIMEOUT' ? 504 : 502
     );
   }
 
