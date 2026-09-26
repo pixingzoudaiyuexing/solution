@@ -62,7 +62,7 @@ describe('AppleAuto Shared Page API', () => {
       requestId: 'm14-request',
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(fetcher.mock.calls[1][0]).toBe('http://id.8babao.com/shareapi/id');
+    expect(fetcher.mock.calls[1][0]).toBe('https://id.8babao.com/shareapi/id');
     expect(fetcher.mock.calls[1][1]).toMatchObject({ method: 'GET', redirect: 'manual' });
   });
 

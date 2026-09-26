@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { AppleIdAccount } from '../../contract/v1/apple-ids';
 
-const SHARED_PAGE_URL = 'http://id.8babao.com/shareapi/id';
+const SHARED_PAGE_URL = 'https://id.8babao.com/shareapi/id';
 const TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 512 * 1024;
 
