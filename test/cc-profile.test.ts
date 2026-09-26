@@ -54,6 +54,23 @@ rules:
   - MATCH,Manual Nodes
 `;
 
+function groupDag(size: number, kind: 'chain' | 'repeated' | 'shared'): string {
+  const base = upstream.slice(0, upstream.indexOf('proxy-groups:'));
+  const groups = Array.from({ length: size }, (_, index) => {
+    const proxies = index === 0 ? ['Node One'] : kind === 'chain'
+      ? [`G${index - 1}`] : kind === 'repeated'
+        ? [`G${index - 1}`, `G${index - 1}`]
+        : index === 1 ? ['G0', 'Node One'] : [`G${index - 1}`, `G${index - 2}`];
+    return `  - name: G${index}\n    type: select\n    proxies: [${proxies.join(', ')}]\n`;
+  }).join('');
+  return `${base}proxy-groups:\n${groups}  - name: 自动选择\n    type: url-test\n    proxies: [G${size - 1}]\n  - name: 故障转移\n    type: fallback\n    proxies: [G${size - 1}]\n`;
+}
+
+function withHosts(count: number, lateDuplicate = false): string {
+  const entries = Array.from({ length: count }, (_, index) => `  host-${index}.example: 1.1.1.1\n`).join('');
+  return `${upstream}hosts:\n${entries}${lateDuplicate ? '  host-0.example: 2.2.2.2\n' : ''}`;
+}
+
 async function profileKv(enabled = true, withDelivery = false): Promise<FakeKV> {
   const kv = new FakeKV();
   const value = { ...config, enabled };
@@ -104,15 +121,15 @@ describe('bounded CC YAML transformation', () => {
     expect(output['mixed-port']).toBe(7890);
     expect(output['external-controller']).toBe('127.0.0.1:9090');
     expect(output['proxy-groups'].map((group: { name: string }) => group.name)).toEqual([
-      'Upstream Automatic', 'Upstream Failover', ...labels, 'Manual Nodes',
+      '自动选择', '故障转移', ...labels, 'Upstream Automatic', 'Upstream Failover', 'Manual Nodes',
     ]);
-    expect(output['proxy-groups'][2].proxies).toEqual(['Upstream Automatic', 'Upstream Failover', 'Node One', 'Node Two']);
-    expect(output['proxy-groups'][8].proxies).toEqual(['DIRECT', 'Upstream Automatic', 'Upstream Failover', 'Node One', 'Node Two']);
+    expect(output['proxy-groups'][2].proxies).toEqual(['自动选择', '故障转移', 'Node One', 'Node Two']);
+    expect(output['proxy-groups'][8].proxies).toEqual(['DIRECT', '自动选择', '故障转移', 'Node One', 'Node Two']);
     expect(output.rules).toEqual([
       'RULE-SET,cc-private,DIRECT', 'RULE-SET,cc-privateip,DIRECT,no-resolve', 'RULE-SET,cc-ads,REJECT',
       ...ids.map((id, index) => `RULE-SET,cc-${id},${labels[index]}`),
       'RULE-SET,cc-cn,DIRECT', 'RULE-SET,cc-cnip,DIRECT,no-resolve',
-      'RULE-SET,cc-proxy,Upstream Automatic', 'MATCH,Upstream Automatic',
+      'RULE-SET,cc-proxy,自动选择', 'MATCH,自动选择',
     ]);
     expect(output['rule-providers']['cc-google'].url).toBe(CC_RULE_CATALOG.google.url);
     expect(transformCcProfile(upstream, config)).toBe(transformCcProfile(upstream, config));
@@ -163,6 +180,110 @@ describe('bounded CC YAML transformation', () => {
 
   it('rejects oversized input before parsing', () => {
     expect(() => transformCcProfile('x'.repeat(CC_MAX_YAML_BYTES + 1), config)).toThrow();
+  });
+});
+
+describe('formal review findings F-01 through F-06', () => {
+  it.each([['chain', 120], ['repeated', 120], ['shared', 120]] as const)('handles a bounded %s group DAG', (kind, size) => {
+    const output = parse(transformCcProfile(groupDag(size, kind), config));
+    expect(output['proxy-groups'].slice(0, 2).map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移']);
+    expect(output.rules.at(-1)).toBe('MATCH,自动选择');
+  });
+
+  it('does not expand a shared two-predecessor DAG by path count', () => {
+    const start = performance.now();
+    const output = parse(transformCcProfile(groupDag(28, 'shared'), config));
+    expect(output.rules.at(-1)).toBe('MATCH,自动选择');
+    expect(performance.now() - start).toBeLessThan(1_500);
+  });
+
+  it('does not revisit the same child exponentially', () => {
+    const start = performance.now();
+    const output = parse(transformCcProfile(groupDag(26, 'repeated'), config));
+    expect(output.rules.at(-1)).toBe('MATCH,自动选择');
+    expect(performance.now() - start).toBeLessThan(1_500);
+  });
+
+  it('accepts a wide unique mapping within the entry limit', () => {
+    expect(parse(transformCcProfile(withHosts(4_096), config)).hosts['host-4095.example']).toBe('1.1.1.1');
+  });
+
+  it('rejects a duplicate key near the end and an excessive wide mapping', () => {
+    expect(() => transformCcProfile(withHosts(4_000, true), config)).toThrow();
+    expect(() => transformCcProfile(withHosts(4_097), config)).toThrow();
+    expect(() => transformCcProfile(withHosts(20_000), config)).toThrow();
+  });
+
+  it('rejects excessive depth, nodes and scalar length before JS conversion', () => {
+    const nested = 'dns:\n' + Array.from({ length: 70 }, (_, index) => `${'  '.repeat(index + 1)}level${index}:\n`).join('') + `${'  '.repeat(71)}value\n`;
+    const manyNodes = `${upstream}hosts:\n  many:\n${'    - x\n'.repeat(100_001)}`;
+    const largeScalar = `${upstream}hosts:\n  key: ${'x'.repeat(1024 * 1024 + 1)}\n`;
+    for (const value of [upstream + nested, manyNodes, largeScalar]) {
+      expect(() => transformCcProfile(value, config)).toThrow();
+    }
+  });
+
+  it('rejects special-only proxies and excludes special outbounds from managed policies', () => {
+    expect(() => transformCcProfile('proxies:\n  - name: Bypass\n    type: direct\nproxy-groups: []\n', config)).toThrow();
+    const mixed = upstream.replace('type: ss', 'type: direct');
+    const specialOnly = mixed.replace('type: trojan', 'type: reject');
+    expect(() => transformCcProfile(specialOnly, config)).toThrow();
+    const output = parse(transformCcProfile(mixed, config));
+    expect(output.proxies[0].type).toBe('direct');
+    expect(output['proxy-groups'][0].proxies).toEqual(['Node Two']);
+    expect(output['proxy-groups'][1].proxies).toEqual(['Node Two']);
+    expect(output['proxy-groups'][2].proxies).not.toContain('Node One');
+    expect(() => transformCcProfile(upstream.replace('type: ss', 'type: unknown'), config)).toThrow();
+  });
+
+  it('preserves independent DNS but rejects references to removed providers', () => {
+    const independent = upstream.replace('  nameserver: [1.1.1.1]', '  nameserver: [1.1.1.1]\n  nameserver-policy:\n    "+.example.com": [1.1.1.1]');
+    expect(parse(transformCcProfile(independent, config)).dns['nameserver-policy']).toEqual({ '+.example.com': ['1.1.1.1'] });
+    const dependent = upstream.replace('  nameserver: [1.1.1.1]', '  nameserver: [1.1.1.1]\n  nameserver-policy:\n    "rule-set:old-cn": [1.1.1.1]');
+    expect(() => transformCcProfile(dependent, config)).toThrow();
+  });
+
+  it('preserves validated local group behavior and rejects unsupported behavior fields', () => {
+    const configured = upstream.replace('    type: select\n    proxies: [Upstream Automatic, Node One, Node Two]',
+      '    type: select\n    proxies: [Upstream Automatic, Node One, Node Two]\n    default-selected: Node Two\n    disable-udp: true');
+    const output = parse(transformCcProfile(configured, config));
+    const manual = output['proxy-groups'].find((group: { name: string }) => group.name === 'Manual Nodes');
+    expect(manual['default-selected']).toBe('Node Two');
+    expect(manual['disable-udp']).toBe(true);
+    const balanced = upstream.replace('rules:\n', '  - name: Balanced\n    type: load-balance\n    proxies: [Node One, Node Two]\n    strategy: round-robin\n    interval: 900\n    lazy: false\nrules:\n');
+    const balancedOutput = parse(transformCcProfile(balanced, config))['proxy-groups'].find((group: { name: string }) => group.name === 'Balanced');
+    expect(balancedOutput).toMatchObject({ strategy: 'round-robin', interval: 900, lazy: false });
+    expect(() => transformCcProfile(configured.replace('    disable-udp: true', '    unsupported-behavior: true'), config)).toThrow();
+    expect(() => transformCcProfile(configured.replace('    disable-udp: true', '    use: [remote-provider]'), config)).toThrow();
+  });
+
+  it('keeps validated health behavior while replacing the outbound probe URL', () => {
+    const configured = upstream.replace('    url: https://www.gstatic.com/generate_204\n    interval: 300',
+      '    url: https://upstream.example/probe\n    interval: 900\n    lazy: false\n    timeout: 5000\n    max-failed-times: 3\n    expected-status: "200/302"\n    tolerance: 100');
+    const output = parse(transformCcProfile(configured, config));
+    const upstreamAuto = output['proxy-groups'].find((group: { name: string }) => group.name === 'Upstream Automatic');
+    expect(upstreamAuto).toMatchObject({
+      url: 'https://www.gstatic.com/generate_204', interval: 900, lazy: false,
+      timeout: 5000, 'max-failed-times': 3, 'expected-status': '200/302', tolerance: 100,
+    });
+    for (const bad of [
+      configured.replace('    lazy: false', '    lazy: invalid'),
+      configured.replace('    expected-status: "200/302"', '    expected-status: ".*"'),
+      configured.replace('    tolerance: 100', '    icon: https://upstream.example/icon.png'),
+      configured.replace('    tolerance: 100', '    include-all: true'),
+    ]) expect(() => transformCcProfile(bad, config)).toThrow();
+  });
+
+  it('keeps stable managed base names when upstream names are opaque and reuses safe exact names', () => {
+    const opaque = parse(transformCcProfile(upstream, config));
+    expect(opaque['proxy-groups'].slice(0, 2).map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移']);
+    expect(opaque['proxy-groups'][2].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
+    expect(opaque.rules.at(-1)).toBe('MATCH,自动选择');
+    const named = upstream.replaceAll('Upstream Automatic', '自动选择').replaceAll('Upstream Failover', '故障转移');
+    const reused = parse(transformCcProfile(named, config));
+    expect(reused['proxy-groups'].filter((group: { name: string }) => group.name === '自动选择')).toHaveLength(1);
+    expect(reused['proxy-groups'].filter((group: { name: string }) => group.name === '故障转移')).toHaveLength(1);
+    expect(() => transformCcProfile(named.replace('type: url-test', 'type: select'), config)).toThrow();
   });
 });
 
@@ -222,11 +343,11 @@ describe('public and authenticated CC routes', () => {
     expect(fetcher).not.toHaveBeenCalled();
     fetcher.mockResolvedValue(new Response('x'.repeat(CC_MAX_YAML_BYTES + 1)));
     response = await app.request(`https://gateway.example/${TOKEN}?profile=cc`, {}, env(await profileKv()));
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(404);
     expect(await response.text()).toBe('subscription_unavailable');
     fetcher.mockResolvedValue(new Response('small', { headers: { 'Content-Length': String(CC_MAX_YAML_BYTES + 1) } }));
     response = await app.request(`https://gateway.example/${TOKEN}?profile=cc`, {}, env(await profileKv()));
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(404);
     expect(await response.text()).toBe('subscription_unavailable');
   });
 
@@ -236,7 +357,7 @@ describe('public and authenticated CC routes', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(upstream.replace('name: Node Two', 'name: Node One')));
     vi.stubGlobal('fetch', fetcher);
     let response = await app.request(`https://gateway.example/${TOKEN}?profile=cc`, {}, env(kv));
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(404);
     expect(await response.text()).toBe('subscription_unavailable');
     expect(JSON.stringify(log.mock.calls)).not.toContain(TOKEN);
     expect(JSON.stringify(log.mock.calls)).not.toContain(SECRET);
@@ -285,5 +406,26 @@ describe('public and authenticated CC routes', () => {
     expect(response.status).toBe(422);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(String(fetcher.mock.calls[0][0])).toContain('/user/info');
+  });
+
+  it('makes sensitive CC operational failures response-equivalent', async () => {
+    const url = `https://gateway.example/${TOKEN}?profile=cc`;
+    const cases: Array<{ kv?: FakeKV; fetch?: () => Promise<Response> }> = [
+      {},
+      { kv: await profileKv(false) },
+      { kv: await profileKv(), fetch: async () => new Response('private', { status: 403 }) },
+      { kv: await profileKv(), fetch: async () => new Response('private', { status: 500 }) },
+      { kv: await profileKv(), fetch: async () => { throw new DOMException('private', 'TimeoutError'); } },
+      { kv: await profileKv(), fetch: async () => new Response('proxies: [') },
+      { kv: await profileKv(), fetch: async () => new Response('small', { headers: { 'Content-Length': String(CC_MAX_YAML_BYTES + 1) } }) },
+      { kv: await profileKv(), fetch: async () => new Response(upstream.replace('name: Node Two', 'name: Node One')) },
+    ];
+    const signatures = [];
+    for (const scenario of cases) {
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(scenario.fetch ?? (async () => { throw new Error('Unexpected fetch'); })));
+      const response = await app.request(url, {}, env(scenario.kv));
+      signatures.push({ status: response.status, body: await response.text(), cache: response.headers.get('Cache-Control'), contentType: response.headers.get('Content-Type') });
+    }
+    expect(signatures).toEqual(Array(cases.length).fill({ status: 404, body: 'subscription_unavailable', cache: 'no-store', contentType: 'text/plain; charset=utf-8' }));
   });
 });

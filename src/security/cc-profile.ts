@@ -7,6 +7,7 @@ const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const MAX_NODES = 100_000;
 const MAX_DEPTH = 64;
 const MAX_SCALAR_LENGTH = 1024 * 1024;
+const MAX_MAP_ENTRIES = 4_096;
 const PROBE_URL = 'https://www.gstatic.com/generate_204';
 const DUSTIN = 'https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-ruleset/';
 
@@ -38,6 +39,14 @@ const SAFE_TOP_LEVEL = new Set([
 ]);
 const RESERVED_NAMES = new Set(['DIRECT', 'REJECT', 'GLOBAL', 'PASS']);
 const GROUP_TYPES = new Set(['select', 'url-test', 'fallback', 'load-balance', 'relay']);
+const REMOTE_PROXY_TYPES = new Set(['ss', 'vmess', 'vless', 'trojan', 'tuic', 'anytls', 'hysteria', 'hysteria2']);
+const SPECIAL_PROXY_TYPES = new Set(['direct', 'reject', 'reject-drop', 'pass', 'dns']);
+const SAFE_GROUP_FIELDS = new Set([
+  'name', 'type', 'proxies', 'url', 'interval', 'lazy', 'default-selected',
+  'empty-fallback', 'timeout', 'max-failed-times', 'disable-udp',
+  'interface-name', 'routing-mark', 'expected-status', 'hidden',
+  'strategy', 'tolerance',
+]);
 
 type Data = Record<string, unknown>;
 
@@ -74,6 +83,23 @@ function validateSafeSettings(input: Data): void {
   }
 }
 
+function validateDnsDependencies(value: unknown): void {
+  if (typeof value === 'string') {
+    if (/rule-set\s*:/i.test(value)) throw new Error('DNS provider dependency');
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) validateDnsDependencies(item);
+    return;
+  }
+  if (object(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      validateDnsDependencies(key);
+      validateDnsDependencies(item);
+    }
+  }
+}
+
 function assertYamlTree(node: unknown): void {
   let count = 0;
   const walk = (value: unknown, depth: number): void => {
@@ -89,10 +115,14 @@ function assertYamlTree(node: unknown): void {
       for (const item of value.items) walk(item, depth + 1);
       return;
     }
+    if (value.items.length > MAX_MAP_ENTRIES) throw new Error('Unsafe YAML');
+    const keys = new Set<string>();
     for (const pair of value.items) {
       if (!isScalar(pair.key) || typeof pair.key.value !== 'string' ||
           ['__proto__', 'prototype', 'constructor', '<<'].includes(pair.key.value)) throw new Error('Unsafe YAML');
       walk(pair.key, depth + 1);
+      if (keys.has(pair.key.value)) throw new Error('Duplicate YAML key');
+      keys.add(pair.key.value);
       walk(pair.value, depth + 1);
     }
   };
@@ -105,10 +135,12 @@ function validateNames(proxies: Data[], groups: Data[]): string[] {
   const all = new Set<string>(RESERVED_NAMES);
   for (const proxy of proxies) {
     if (!object(proxy) || !name(proxy.name) || !name(proxy.type) || all.has(proxy.name) ||
-        'dialer-proxy' in proxy) throw new Error('Invalid proxy');
+        'dialer-proxy' in proxy ||
+        (!REMOTE_PROXY_TYPES.has(proxy.type) && !SPECIAL_PROXY_TYPES.has(proxy.type))) throw new Error('Invalid proxy');
     all.add(proxy.name);
-    proxyNames.push(proxy.name);
+    if (REMOTE_PROXY_TYPES.has(proxy.type)) proxyNames.push(proxy.name);
   }
+  if (proxyNames.length === 0) throw new Error('No usable proxy');
   const groupNames = new Set<string>();
   for (const group of groups) {
     if (!object(group) || !name(group.name) || group.name.includes(',') || !GROUP_TYPES.has(String(group.type)) ||
@@ -144,16 +176,76 @@ function validateNames(proxies: Data[], groups: Data[]): string[] {
   return proxyNames;
 }
 
+function preserveSafeGroup(group: Data, proxyNames: Set<string>): Data {
+  const health = group.type === 'url-test' || group.type === 'fallback' || group.type === 'load-balance';
+  if (Object.keys(group).some((key) => !SAFE_GROUP_FIELDS.has(key))) throw new Error('Unsupported group field');
+  const safe: Data = { name: group.name, type: group.type, proxies: [...group.proxies as string[]] };
+  if (health) safe.url = PROBE_URL;
+  else if ('url' in group) throw new Error('Invalid group field');
+  if ('url' in group && (typeof group.url !== 'string' || group.url.length > 2048)) throw new Error('Invalid group field');
+  for (const key of ['lazy', 'disable-udp', 'hidden']) {
+    if (key in group) {
+      if (typeof group[key] !== 'boolean') throw new Error('Invalid group field');
+      safe[key] = group[key];
+    }
+  }
+  for (const [key, max] of [
+    ['interval', 604_800], ['timeout', 60_000], ['max-failed-times', 100], ['tolerance', 60_000],
+  ] as const) {
+    if (key in group) {
+      if (!health || (key === 'tolerance' && group.type !== 'url-test') ||
+          !Number.isSafeInteger(group[key]) || (group[key] as number) < (key === 'interval' || key === 'tolerance' ? 0 : 1) ||
+          (group[key] as number) > max) throw new Error('Invalid group field');
+      safe[key] = group[key];
+    }
+  }
+  if ('default-selected' in group) {
+    if (!name(group['default-selected']) || !(group.proxies as string[]).includes(group['default-selected'])) {
+      throw new Error('Invalid group selection');
+    }
+    safe['default-selected'] = group['default-selected'];
+  }
+  if ('empty-fallback' in group) {
+    if (!name(group['empty-fallback']) || !proxyNames.has(group['empty-fallback'])) throw new Error('Invalid group fallback');
+    safe['empty-fallback'] = group['empty-fallback'];
+  }
+  if ('strategy' in group) {
+    if (group.type !== 'load-balance' ||
+        !['consistent-hashing', 'round-robin', 'sticky-sessions'].includes(String(group.strategy))) {
+      throw new Error('Invalid group strategy');
+    }
+    safe.strategy = group.strategy;
+  }
+  if ('expected-status' in group) {
+    const status = String(group['expected-status']);
+    if (!health || status.length > 128 || !/^(?:\*|[1-5]\d\d(?:[-/][1-5]\d\d)*)$/.test(status)) {
+      throw new Error('Invalid group status');
+    }
+    safe['expected-status'] = group['expected-status'];
+  }
+  if ('interface-name' in group) {
+    if (!name(group['interface-name']) || group['interface-name'].length > 128) throw new Error('Invalid group interface');
+    safe['interface-name'] = group['interface-name'];
+  }
+  if ('routing-mark' in group) {
+    if (!Number.isSafeInteger(group['routing-mark']) || (group['routing-mark'] as number) < 0 ||
+        (group['routing-mark'] as number) > 2_147_483_647) throw new Error('Invalid group routing mark');
+    safe['routing-mark'] = group['routing-mark'];
+  }
+  return safe;
+}
+
 export function transformCcProfile(yaml: string, config: SubscriptionProfileConfig): string {
   if (!config.enabled || config.profileId !== 'cc' || new TextEncoder().encode(yaml).byteLength > CC_MAX_YAML_BYTES) {
     throw new Error('Invalid CC input');
   }
-  const document = parseDocument(yaml, { version: '1.2', uniqueKeys: true });
+  const document = parseDocument(yaml, { version: '1.2', uniqueKeys: false });
   if (document.errors.length || !isMap(document.contents)) throw new Error('Invalid YAML');
   assertYamlTree(document.contents);
   const input: unknown = document.toJS({ maxAliasCount: 0 });
   if (!object(input) || Object.keys(input).some((key) => !SAFE_TOP_LEVEL.has(key))) throw new Error('Unsupported Clash structure');
   validateSafeSettings(input);
+  if (input.dns !== undefined) validateDnsDependencies(input.dns);
   if (input.mode !== undefined && input.mode !== 'rule') throw new Error('Unsupported Clash mode');
   if (input.profile !== undefined &&
       (!object(input.profile) || Object.keys(input.profile).some((key) => !['store-selected', 'store-fake-ip'].includes(key)) ||
@@ -178,27 +270,28 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
     existing.add(group.label.default);
   }
 
-  // Preserve group membership and selection semantics, but do not relay upstream URLs or provider wiring.
-  const groups = upstreamGroups.map((group) => {
-    const safe: Data = { name: group.name, type: group.type, proxies: [...group.proxies as string[]] };
-    if (group.type === 'url-test' || group.type === 'fallback' || group.type === 'load-balance') {
-      safe.url = PROBE_URL;
-      safe.interval = 300;
-    }
-    if (group.type === 'load-balance' &&
-        ['consistent-hashing', 'round-robin', 'sticky-sessions'].includes(String(group.strategy))) {
-      safe.strategy = group.strategy;
-    }
-    return safe;
-  });
+  const allProxyNames = new Set(proxies.map((proxy) => proxy.name as string));
+  const groups = upstreamGroups.map((group) => preserveSafeGroup(group, allProxyNames));
   const byName = new Map(groups.map((group) => [group.name as string, group]));
   const proxySet = new Set(proxyNames);
-  const selectsOnlyNodes = (group: Data): boolean =>
-    (group.proxies as string[]).every((target) =>
+  const reachable = new Map<string, boolean>();
+  const selectsOnlyNodes = (group: Data): boolean => {
+    const groupName = group.name as string;
+    if (reachable.has(groupName)) return reachable.get(groupName)!;
+    const valid = (group.proxies as string[]).every((target) =>
       proxySet.has(target) || (byName.has(target) && selectsOnlyNodes(byName.get(target)!))
     );
-  let auto = groups.find((group) => group.type === 'url-test' && selectsOnlyNodes(group));
-  let fallback = groups.find((group) => group.type === 'fallback' && selectsOnlyNodes(group));
+    reachable.set(groupName, valid);
+    return valid;
+  };
+  let auto = byName.get('自动选择');
+  let fallback = byName.get('故障转移');
+  if (auto && (auto.type !== 'url-test' || auto.hidden === true || !selectsOnlyNodes(auto))) {
+    throw new Error('Managed name collision');
+  }
+  if (fallback && (fallback.type !== 'fallback' || fallback.hidden === true || !selectsOnlyNodes(fallback))) {
+    throw new Error('Managed name collision');
+  }
   if (!auto) {
     if (existing.has('自动选择')) throw new Error('Managed name collision');
     auto = { name: '自动选择', type: 'url-test', proxies: proxyNames, url: PROBE_URL, interval: 300 };
@@ -211,8 +304,8 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
     groups.push(fallback);
     existing.add('故障转移');
   }
-  const autoName = auto.name as string;
-  const fallbackName = fallback.name as string;
+  const autoName = '自动选择';
+  const fallbackName = '故障转移';
   const managed = active.map((group) => ({
     name: group.label.default,
     type: 'select',

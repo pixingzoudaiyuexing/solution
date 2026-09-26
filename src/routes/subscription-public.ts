@@ -96,6 +96,7 @@ async function serve(
     response.headers.set('Cache-Control', 'no-store');
     return response;
   } catch (error) {
+    if (profile === 'cc') return unavailable(404);
     if (error instanceof V2BoardSubscriptionUnavailableError) return unavailable(404);
     if (error instanceof V2BoardTimeoutError) return unavailable(504);
     return unavailable(502);
