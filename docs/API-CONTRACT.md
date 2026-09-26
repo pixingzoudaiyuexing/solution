@@ -2284,3 +2284,28 @@ Success / fallback 均返回 HTTP 200：
 `runtime-settings` 使用 code-owned `STALE_TOLERANT` policy，最大 LKG age 为 `86400` 秒。`age <= 86400` 时可返回 safe LKG；超过边界、future/temporally-invalid snapshot、binding 缺失、snapshot missing/corrupt、module absent/disabled/unavailable 或没有 usable LKG 时均返回 all-null DTO。Latest validation invalid 但 retained LKG 仍在 24 小时内时可继续返回该 LKG；内部 validation/health/freshness/error reason 不进入 Public response。
 
 Public DTO 只包含上述七个字段。Raw Registry body/config、enabled/latest validation state、health/code、freshness class、age、timestamps、source metadata/fingerprint、secret/ref、Admin/V2Board origin/path、KV key 与 Control Plane failure 均不公开。
+
+## REG-M05 CC Clash Profile (Solution implementation; independent review pending)
+
+Authenticated `GET /api/v1/subscription/delivery-options` keeps `defaultEntryId` and `entries` and adds neutral `profiles`:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "defaultEntryId": "primary",
+    "entries": [{ "id": "primary", "label": "Subscription" }],
+    "profiles": [
+      { "id": "default", "label": "Default", "available": true },
+      { "id": "cc", "label": "Clash 分流规则", "available": true }
+    ]
+  },
+  "requestId": "request-id"
+}
+```
+
+`cc.available` is true only while the validated `subscription-profile` Registry snapshot is usable and enabled. If unavailable, the CC item remains present with `available: false` and label `CC`. `profiles` contains presentation and capability only; it never contains a token, rule source, or raw Registry config. Delivery entries remain separately controlled by the existing `subscription-delivery` snapshot.
+
+Authenticated `POST /api/v1/subscription/access-link` accepts strict `{ "entryId": "primary", "profileId": "default" | "cc", "subscriptionInfo": "show" | "hide" }`, with the latter two fields optional and defaulting to `default`/`show`. `default` returns the existing canonical URL without `profile=default`. `cc` requires an available profile snapshot and returns a complete URL with exactly `profile=cc`; `subscriptionInfo=hide` also adds `info=hide`. Solution alone constructs the token-bearing URL. Unavailable CC profile returns the existing neutral `422 SUBSCRIPTION_ENTRY_UNAVAILABLE` category before normal-token acquisition.
+
+Public `GET /{token}` and `GET /{prefix}/{token}` accept `profile=cc` with optional `info=show|hide`. Duplicate, unknown or invalid query values fail closed with the generic `subscription_unavailable` body. Missing profile or `profile=default` continues the D-005 verbatim stream without a Registry read or YAML transformer initialization. CC requests use fixed V2Board origin/path and internal `flag=meta`; only the bounded upstream YAML is transformed. The public error body stays generic and responses use `Cache-Control: no-store`.

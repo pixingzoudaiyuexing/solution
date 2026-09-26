@@ -38,6 +38,7 @@ import {
   isSubscriptionDeliverySafeForDeployment,
   subscriptionDeliveryOperationalDefinition,
 } from '../../registry/modules/subscription-delivery';
+import { subscriptionProfileOperationalDefinition } from '../../registry/modules/subscription-profile';
 import { readRegistryModuleSnapshot } from '../../registry/operational';
 import {
   V2BoardSubscriptionAccessUnavailableError,
@@ -57,7 +58,7 @@ const subscriptionEntryAccessRequestSchema = z
   .strict();
 const accessLinkRequestSchema = z.object({
   entryId: z.string().regex(/^[a-z](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/),
-  profileId: z.literal('default').optional().default('default'),
+  profileId: z.enum(['default', 'cc']).optional().default('default'),
   subscriptionInfo: z.enum(['show', 'hide']).optional().default('show'),
 }).strict();
 
@@ -83,6 +84,14 @@ function accessUrl(publicOrigin: string, token: string): string {
   const url = new URL('/api/v1/access/subscription', publicOrigin);
   url.searchParams.set('token', token);
   return url.toString();
+}
+
+async function availableCcProfile(env: Env) {
+  if (!env.REGISTRY_KV) return null;
+  const result = await readRegistryModuleSnapshot(
+    env.REGISTRY_KV, subscriptionProfileOperationalDefinition, Date.now(), registryOperationalDefinitions
+  );
+  return result.status === 'available' && result.config.enabled ? result.config : null;
 }
 
 subscriptionRouter.get('/', requireAuthorization, async (c) => {
@@ -168,6 +177,7 @@ subscriptionRouter.get('/delivery-options', requireAuthorization, async (c) => {
   let data: SubscriptionDeliveryOptionsSuccessResponse['data'] = {
     defaultEntryId: null,
     entries: [],
+    profiles: [{ id: 'default', label: 'Default', available: true }],
   };
   if (c.env.REGISTRY_KV && c.env.V2BOARD_BASE_URL) {
     const result = await readRegistryModuleSnapshot(
@@ -184,10 +194,12 @@ subscriptionRouter.get('/delivery-options', requireAuthorization, async (c) => {
         .filter((entry) => entry.enabled && entry.selectable)
         .map((entry) => ({ id: entry.id, label: entry.label.default }));
       if (entries.length > 0) {
-        data = { defaultEntryId: result.config.defaultEntryId, entries };
+        data = { ...data, defaultEntryId: result.config.defaultEntryId, entries };
       }
     }
   }
+  const ccProfile = await availableCcProfile(c.env);
+  data.profiles.push({ id: 'cc', label: ccProfile?.label.default ?? 'CC', available: ccProfile !== null });
   const response: SubscriptionDeliveryOptionsSuccessResponse = {
     ok: true, data, requestId: requestId(c),
   };
@@ -222,9 +234,13 @@ subscriptionRouter.post('/access-link', requireAuthorization, async (c) => {
     (candidate) => candidate.id === parsed.data.entryId && candidate.enabled && candidate.selectable
   );
   if (!entry) throw new V2BoardSubscriptionEntryUnavailableError();
+  if (parsed.data.profileId === 'cc' && !(await availableCcProfile(c.env))) {
+    throw new V2BoardSubscriptionEntryUnavailableError();
+  }
   const token = await service.normalSubscriptionToken(c.get('authToken'));
   const url = new URL(entry.publicOrigin);
   url.pathname = entry.pathPrefix ? `/${entry.pathPrefix}/${token}` : `/${token}`;
+  if (parsed.data.profileId === 'cc') url.searchParams.set('profile', 'cc');
   if (parsed.data.subscriptionInfo === 'hide') url.searchParams.set('info', 'hide');
   const response: SubscriptionAccessLinkSuccessResponse = {
     ok: true, data: { accessUrl: url.toString() }, requestId: requestId(c),

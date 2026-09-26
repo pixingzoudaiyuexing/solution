@@ -5,6 +5,8 @@ import {
   validateSubscriptionToken,
 } from '../../security/subscription';
 import { cancelUnusedResponseBody } from '../../http/response-body';
+import { CC_MAX_YAML_BYTES } from '../../security/cc-profile-limits';
+import type { SubscriptionProfileConfig } from '../../registry/modules/subscription-profile';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
 import {
@@ -297,5 +299,69 @@ export class V2BoardSubscriptionAdapter extends V2BoardAdapterBase {
       status: response.status,
       headers,
     });
+  }
+
+  async ccProfileContent(
+    token: string,
+    trustedUserAgent: string | undefined,
+    subscriptionInfo: 'show' | 'hide',
+    config: SubscriptionProfileConfig
+  ): Promise<Response> {
+    const subscribePath = normalizeV2BoardSubscribePath(this.subscribePath);
+    const query = new URLSearchParams({ token: validateSubscriptionToken(token), flag: 'meta' });
+    const response = await this.request(
+      `${subscribePath}?${query.toString()}`,
+      { method: 'GET', headers: { Accept: 'application/yaml' }, trustedUserAgent },
+      this.originClient
+    );
+    if (!response.ok) {
+      await cancelUnusedResponseBody(response);
+      if (response.status >= 400 && response.status < 500) throw new V2BoardSubscriptionUnavailableError();
+      throw new V2BoardUpstreamError();
+    }
+    const declaredLength = response.headers.get('content-length');
+    if (declaredLength !== null && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > CC_MAX_YAML_BYTES)) {
+      await cancelUnusedResponseBody(response);
+      throw new V2BoardUpstreamError();
+    }
+    if (!response.body) throw new V2BoardUpstreamError();
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      void reader.cancel().catch(() => undefined);
+    }, 10_000);
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > CC_MAX_YAML_BYTES) throw new V2BoardUpstreamError();
+        chunks.push(value);
+      }
+      if (timedOut) throw new V2BoardUpstreamError();
+    } catch {
+      void reader.cancel().catch(() => undefined);
+      throw new V2BoardUpstreamError();
+    } finally {
+      clearTimeout(timeout);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    let yaml: string;
+    try {
+      const { transformCcProfile } = await import('../../security/cc-profile');
+      yaml = transformCcProfile(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes), config);
+    } catch { throw new V2BoardUpstreamError(); }
+    const headers = new Headers({ 'Content-Type': 'application/yaml; charset=utf-8' });
+    for (const name of SUBSCRIPTION_RESPONSE_HEADERS) {
+      if (name === 'content-type' || name === 'content-disposition') continue;
+      const value = response.headers.get(name);
+      if (value !== null && !(subscriptionInfo === 'hide' && name === 'subscription-userinfo')) headers.set(name, value);
+    }
+    return new Response(yaml, { status: 200, headers });
   }
 }

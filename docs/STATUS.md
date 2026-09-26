@@ -115,6 +115,13 @@ Reserved Knowledge Registry -> Solution -> Aureole
 - State: `PASS / COMPLETE / CLOSED / RE-FROZEN`; Production remains `NOT AUTHORIZED / NOT DEPLOYED`.
 - M05 and REG-M07 remain `NOT IMPLEMENTED`; Aureole migration and CF-02 cleanup remain `NOT PERFORMED / NOT AUTHORIZED`; V2Board remains unchanged.
 
+## REG-M05 CC Clash Profile Pre-Review
+
+- `profile=cc` is implemented in Solution source; Formal Independent Review and TEST runtime acceptance remain pending.
+- The M04/M06 default bearer path remains verbatim streaming. CC YAML parsing is lazy and limited to `profile=cc`.
+- `subscription-profile` is a separate v1 Registry module with code-known logical rules. Delivery options expose neutral profile availability; access-link builds the complete CC URL.
+- No TEST/Production deployment, Aureole/V2Board change, DNS switch, or CF-02 cleanup is part of this implementation.
+
 ## REG-M03 Download Center Closure
 
 - Task state: `PASS / COMPLETE / CLOSED / RE-FROZEN`. Reviewed implementation anchor: `d97da44248aa1abff979815cbc51e9158f276e46`; Gemini post-code review: `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`; merge/main anchor: `24e58a907f9595edb1551976122e3c920b859a9e`. Production remains not deployed.

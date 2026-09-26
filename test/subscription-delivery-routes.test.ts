@@ -34,7 +34,7 @@ describe('subscription delivery APIs', () => {
     const kv = await kvWith();
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(eligible)); vi.stubGlobal('fetch', fetcher);
     const response = await app.request('/api/v1/subscription/delivery-options', { headers: { Authorization: 'Bearer user-token', 'cf-ray': 'rid' } }, env(kv));
-    expect(await response.json()).toEqual({ ok: true, data: { defaultEntryId: 'primary', entries: [{ id: 'primary', label: 'Subscription' }] }, requestId: 'rid' });
+    expect(await response.json()).toEqual({ ok: true, data: { defaultEntryId: 'primary', entries: [{ id: 'primary', label: 'Subscription' }], profiles: [{ id: 'default', label: 'Default', available: true }, { id: 'cc', label: 'CC', available: false }] }, requestId: 'rid' });
     expect(String(fetcher.mock.calls[0][0])).toContain('/user/info');
   });
 

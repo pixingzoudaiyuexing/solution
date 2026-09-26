@@ -4,6 +4,7 @@ import { customPagesOperationalDefinition } from './modules/custom-pages';
 import { downloadCenterOperationalDefinition } from './modules/download-center';
 import { runtimeSettingsOperationalDefinition } from './modules/runtime-settings';
 import { subscriptionDeliveryOperationalDefinition } from './modules/subscription-delivery';
+import { subscriptionProfileOperationalDefinition } from './modules/subscription-profile';
 
 export const registryOperationalDefinitions: readonly RegistryOperationalModuleDefinition<
   any,
@@ -12,6 +13,7 @@ export const registryOperationalDefinitions: readonly RegistryOperationalModuleD
   runtimeSettingsOperationalDefinition,
   customPagesOperationalDefinition,
   subscriptionDeliveryOperationalDefinition,
+  subscriptionProfileOperationalDefinition,
   announcementsOperationalDefinition,
   downloadCenterOperationalDefinition,
 ];

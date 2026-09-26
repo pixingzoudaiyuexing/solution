@@ -4,6 +4,9 @@ import { V2BoardSubscriptionAdapter } from '../adapters/v2board/subscription';
 import { V2BoardSubscriptionUnavailableError, V2BoardTimeoutError } from '../adapters/v2board/errors';
 import type { Env } from '../config/env';
 import { validateSubscriptionPathPrefix } from '../registry/modules/subscription-delivery';
+import { subscriptionProfileOperationalDefinition } from '../registry/modules/subscription-profile';
+import { registryOperationalDefinitions } from '../registry/definitions';
+import { readRegistryModuleSnapshot } from '../registry/operational';
 import {
   normalizeV2BoardSubscribePath,
   validateSubscriptionToken,
@@ -19,20 +22,24 @@ function unavailable(status: 400 | 404 | 502 | 504): Response {
   });
 }
 
-function parseQuery(url: string): { info: 'show' | 'hide' } {
+function parseQuery(url: string): { profile: 'default' | 'cc'; info: 'show' | 'hide' } {
   const entries = [...new URL(url).searchParams.entries()];
   const seen = new Set<string>();
   let info: 'show' | 'hide' = 'show';
+  let profile: 'default' | 'cc' = 'default';
   for (const [key, value] of entries) {
     if (seen.has(key) || (key !== 'profile' && key !== 'info')) throw new Error();
     seen.add(key);
-    if (key === 'profile' && value !== 'default') throw new Error();
+    if (key === 'profile') {
+      if (value !== 'default' && value !== 'cc') throw new Error();
+      profile = value;
+    }
     if (key === 'info') {
       if (value !== 'show' && value !== 'hide') throw new Error();
       info = value;
     }
   }
-  return { info };
+  return { profile, info };
 }
 
 function configuredLegacyPath(value: string | undefined): string | undefined {
@@ -60,11 +67,14 @@ async function serve(
 ): Promise<Response> {
   let token: string;
   let info: 'show' | 'hide';
+  let profile: 'default' | 'cc';
   let userAgent: string | undefined;
   try {
     if (prefix !== undefined) validateSubscriptionPathPrefix(prefix);
     token = validateSubscriptionToken(tokenValue);
-    info = legacyInfo ?? parseQuery(c.req.url).info;
+    const query = legacyInfo ? { profile: 'default' as const, info: legacyInfo } : parseQuery(c.req.url);
+    info = query.info;
+    profile = query.profile;
     const rawUa = c.req.header('User-Agent');
     userAgent = rawUa ? validateTrustedUserAgent(rawUa) : undefined;
   } catch { return unavailable(400); }
@@ -72,7 +82,17 @@ async function serve(
     const adapter = new V2BoardSubscriptionAdapter(
       createV2BoardClient(c.env), createV2BoardOriginClient(c.env), c.env.V2BOARD_SUBSCRIBE_PATH
     );
-    const response = await adapter.subscriptionContent(token, userAgent, info);
+    let response: Response;
+    if (profile === 'cc') {
+      if (!c.env.REGISTRY_KV) return unavailable(404);
+      const result = await readRegistryModuleSnapshot(
+        c.env.REGISTRY_KV, subscriptionProfileOperationalDefinition, Date.now(), registryOperationalDefinitions
+      );
+      if (result.status !== 'available' || !result.config.enabled) return unavailable(404);
+      response = await adapter.ccProfileContent(token, userAgent, info, result.config);
+    } else {
+      response = await adapter.subscriptionContent(token, userAgent, info);
+    }
     response.headers.set('Cache-Control', 'no-store');
     return response;
   } catch (error) {

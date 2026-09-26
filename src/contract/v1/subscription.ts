@@ -88,6 +88,7 @@ export interface SubscriptionOverviewSuccessResponse {
 export interface SubscriptionDeliveryOptions {
   defaultEntryId: string | null;
   entries: Array<{ id: string; label: string }>;
+  profiles: Array<{ id: 'default' | 'cc'; label: string; available: boolean }>;
 }
 export interface SubscriptionDeliveryOptionsSuccessResponse { ok: true; data: SubscriptionDeliveryOptions; requestId: string; }
 export interface SubscriptionAccessLinkSuccessResponse { ok: true; data: { accessUrl: string }; requestId: string; }
