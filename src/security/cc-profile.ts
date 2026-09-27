@@ -85,7 +85,7 @@ function validateSafeSettings(input: Data): void {
 
 function validateDnsDependencies(value: unknown): void {
   if (typeof value === 'string') {
-    if (/rule-set\s*:/i.test(value)) throw new Error('DNS provider dependency');
+    if (/(?:^|,)\s*rule-set\s*[:,]/i.test(value.trim())) throw new Error('DNS provider dependency');
     return;
   }
   if (Array.isArray(value)) {
@@ -217,11 +217,12 @@ function preserveSafeGroup(group: Data, proxyNames: Set<string>): Data {
     safe.strategy = group.strategy;
   }
   if ('expected-status' in group) {
-    const status = String(group['expected-status']);
-    if (!health || status.length > 128 || !/^(?:\*|[1-5]\d\d(?:[-/][1-5]\d\d)*)$/.test(status)) {
+    const status = group['expected-status'];
+    if (!health || typeof status !== 'string' || status.length > 128 ||
+        !/^(?:\*|[1-5]\d\d(?:[-/][1-5]\d\d)*)$/.test(status)) {
       throw new Error('Invalid group status');
     }
-    safe['expected-status'] = group['expected-status'];
+    safe['expected-status'] = status;
   }
   if ('interface-name' in group) {
     if (!name(group['interface-name']) || group['interface-name'].length > 128) throw new Error('Invalid group interface');
@@ -264,13 +265,13 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
   const proxyNames = validateNames(proxies, upstreamGroups);
 
   const active = config.groups.filter((group) => group.enabled);
-  const existing = new Set([...proxyNames, ...upstreamGroups.map((group) => group.name as string)]);
+  const allProxyNames = new Set(proxies.map((proxy) => proxy.name as string));
+  const existing = new Set([...allProxyNames, ...upstreamGroups.map((group) => group.name as string)]);
   for (const group of active) {
     if (existing.has(group.label.default) || RESERVED_NAMES.has(group.label.default)) throw new Error('Managed name collision');
     existing.add(group.label.default);
   }
 
-  const allProxyNames = new Set(proxies.map((proxy) => proxy.name as string));
   const groups = upstreamGroups.map((group) => preserveSafeGroup(group, allProxyNames));
   const byName = new Map(groups.map((group) => [group.name as string, group]));
   const proxySet = new Set(proxyNames);

@@ -243,6 +243,31 @@ describe('formal review findings F-01 through F-06', () => {
     expect(() => transformCcProfile(dependent, config)).toThrow();
   });
 
+  it('rejects Mihomo DNS rule expressions that reference removed providers', () => {
+    const entries = [
+      'RULE-SET,old-cn,real-ip',
+      'rule-set,old-cn,real-ip',
+      'RuLe-SeT , old-cn , real-ip',
+      'rUlE-sEt : old-cn',
+    ];
+    for (const entry of entries) {
+      const inArray = upstream.replace('  nameserver: [1.1.1.1]',
+        `  nameserver: [1.1.1.1]\n  fake-ip-filter-mode: rule\n  fake-ip-filter:\n    - ${JSON.stringify(entry)}\n    - MATCH,fake-ip`);
+      const inKey = upstream.replace('  nameserver: [1.1.1.1]',
+        `  nameserver: [1.1.1.1]\n  nameserver-policy:\n    "${entry}": [1.1.1.1]`);
+      const inValue = upstream.replace('  nameserver: [1.1.1.1]',
+        `  nameserver: [1.1.1.1]\n  nameserver-policy:\n    "+.example.com": ["${entry}"]`);
+      for (const value of [inArray, inKey, inValue]) {
+        expect(() => transformCcProfile(value, config)).toThrow();
+      }
+    }
+    const independent = upstream.replace('  nameserver: [1.1.1.1]',
+      '  nameserver: [1.1.1.1]\n  fake-ip-filter-mode: rule\n  fake-ip-filter:\n    - MATCH,fake-ip\n    - DOMAIN,example.com,real-ip\n    - GEOIP,CN,real-ip\n    - +.my-rule-set.example');
+    expect(parse(transformCcProfile(independent, config)).dns['fake-ip-filter']).toEqual([
+      'MATCH,fake-ip', 'DOMAIN,example.com,real-ip', 'GEOIP,CN,real-ip', '+.my-rule-set.example',
+    ]);
+  });
+
   it('preserves validated local group behavior and rejects unsupported behavior fields', () => {
     const configured = upstream.replace('    type: select\n    proxies: [Upstream Automatic, Node One, Node Two]',
       '    type: select\n    proxies: [Upstream Automatic, Node One, Node Two]\n    default-selected: Node Two\n    disable-udp: true');
@@ -274,6 +299,23 @@ describe('formal review findings F-01 through F-06', () => {
     ]) expect(() => transformCcProfile(bad, config)).toThrow();
   });
 
+  it.each([
+    ['"204"', '204'],
+    ['"200/302"', '200/302'],
+    ['"400-503"', '400-503'],
+  ])('preserves a validated expected-status string scalar %s', (raw, expected) => {
+    const value = upstream.replace('    interval: 300', `    interval: 300\n    expected-status: ${raw}`);
+    const output = parse(transformCcProfile(value, config));
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === 'Upstream Automatic')['expected-status']).toBe(expected);
+  });
+
+  it.each(['204', '[204]', '["200/302"]', '{value: 204}', 'true', 'null', '".*"', `"${'2'.repeat(129)}"`])(
+    'rejects non-scalar or invalid expected-status %s', (raw) => {
+      const value = upstream.replace('    interval: 300', `    interval: 300\n    expected-status: ${raw}`);
+      expect(() => transformCcProfile(value, config)).toThrow();
+    }
+  );
+
   it('keeps stable managed base names when upstream names are opaque and reuses safe exact names', () => {
     const opaque = parse(transformCcProfile(upstream, config));
     expect(opaque['proxy-groups'].slice(0, 2).map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移']);
@@ -284,6 +326,28 @@ describe('formal review findings F-01 through F-06', () => {
     expect(reused['proxy-groups'].filter((group: { name: string }) => group.name === '自动选择')).toHaveLength(1);
     expect(reused['proxy-groups'].filter((group: { name: string }) => group.name === '故障转移')).toHaveLength(1);
     expect(() => transformCcProfile(named.replace('type: url-test', 'type: select'), config)).toThrow();
+  });
+
+  it.each(['自动选择', '故障转移', 'YouTube', 'Google', 'AI', 'Netflix', 'Disney', 'TikTok', 'Bilibili'])(
+    'rejects a preserved special outbound colliding with managed name %s', (managedName) => {
+      const value = upstream.replace('proxy-groups:', `  - name: ${managedName}\n    type: direct\nproxy-groups:`);
+      expect(() => transformCcProfile(value, config)).toThrow();
+    }
+  );
+
+  it('rejects a special outbound colliding with a safe custom application label', () => {
+    const custom = { ...config, groups: [{ ...config.groups[0], label: { default: 'Custom Video' } }, ...config.groups.slice(1)] };
+    const value = upstream.replace('proxy-groups:', '  - name: Custom Video\n    type: direct\nproxy-groups:');
+    expect(() => transformCcProfile(value, custom)).toThrow();
+  });
+
+  it('preserves an ordinary special outbound outside managed routing', () => {
+    const value = upstream.replace('proxy-groups:', '  - name: Bypass\n    type: direct\nproxy-groups:');
+    const output = parse(transformCcProfile(value, config));
+    expect(output.proxies.find((proxy: { name: string }) => proxy.name === 'Bypass').type).toBe('direct');
+    expect(output['proxy-groups'][0].proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'][1].proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'][2].proxies).not.toContain('Bypass');
   });
 });
 
