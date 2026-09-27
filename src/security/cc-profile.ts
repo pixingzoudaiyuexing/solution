@@ -285,12 +285,22 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
     reachable.set(groupName, valid);
     return valid;
   };
+  const remoteReachable = new Map<string, boolean>();
+  const reachesRemoteNode = (group: Data): boolean => {
+    const groupName = group.name as string;
+    if (remoteReachable.has(groupName)) return remoteReachable.get(groupName)!;
+    const valid = (group.proxies as string[]).some((target) =>
+      proxySet.has(target) || (byName.has(target) && reachesRemoteNode(byName.get(target)!))
+    );
+    remoteReachable.set(groupName, valid);
+    return valid;
+  };
   let auto = byName.get('自动选择');
   let fallback = byName.get('故障转移');
-  if (auto && (auto.type !== 'url-test' || auto.hidden === true || !selectsOnlyNodes(auto))) {
+  if (auto && (auto.type !== 'url-test' || !selectsOnlyNodes(auto))) {
     throw new Error('Managed name collision');
   }
-  if (fallback && (fallback.type !== 'fallback' || fallback.hidden === true || !selectsOnlyNodes(fallback))) {
+  if (fallback && (fallback.type !== 'fallback' || !selectsOnlyNodes(fallback))) {
     throw new Error('Managed name collision');
   }
   if (!auto) {
@@ -307,6 +317,31 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
   }
   const autoName = '自动选择';
   const fallbackName = '故障转移';
+  const managedLabels = new Set(config.groups.map((group) => group.label.default));
+  const helperDependencies = new Set<string>();
+  const recordHelperDependencies = (group: Data): void => {
+    const groupName = group.name as string;
+    if (helperDependencies.has(groupName)) return;
+    helperDependencies.add(groupName);
+    for (const target of group.proxies as string[]) {
+      if (byName.has(target)) recordHelperDependencies(byName.get(target)!);
+    }
+  };
+  recordHelperDependencies(auto);
+  recordHelperDependencies(fallback);
+  const primary = groups.find((group) =>
+    group.type === 'select' && group.hidden !== true &&
+    group.name !== autoName && group.name !== fallbackName &&
+    !managedLabels.has(group.name as string) && reachesRemoteNode(group) &&
+    !helperDependencies.has(group.name as string)
+  );
+  if (primary) {
+    primary.proxies = [autoName, fallbackName, ...(primary.proxies as string[]).filter(
+      (target) => target !== autoName && target !== fallbackName
+    )];
+  }
+  auto.hidden = primary !== undefined;
+  fallback.hidden = primary !== undefined;
   const managed = active.map((group) => ({
     name: group.label.default,
     type: 'select',
@@ -314,7 +349,9 @@ export function transformCcProfile(yaml: string, config: SubscriptionProfileConf
       ? ['DIRECT', autoName, fallbackName, ...proxyNames]
       : [autoName, fallbackName, ...proxyNames],
   }));
-  const orderedGroups = [auto, fallback, ...managed, ...groups.filter((group) => group !== auto && group !== fallback)];
+  const orderedGroups = primary
+    ? [primary, ...managed, ...groups.filter((group) => group !== primary && group !== auto && group !== fallback), auto, fallback]
+    : [auto, fallback, ...managed, ...groups.filter((group) => group !== auto && group !== fallback)];
 
   const usedRules: RuleId[] = ['private', 'privateip', 'ads', ...active.map((group) => group.id), 'cn', 'cnip', 'proxy'];
   const providers: Data = {};

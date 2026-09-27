@@ -121,10 +121,10 @@ describe('bounded CC YAML transformation', () => {
     expect(output['mixed-port']).toBe(7890);
     expect(output['external-controller']).toBe('127.0.0.1:9090');
     expect(output['proxy-groups'].map((group: { name: string }) => group.name)).toEqual([
-      '自动选择', '故障转移', ...labels, 'Upstream Automatic', 'Upstream Failover', 'Manual Nodes',
+      'Manual Nodes', ...labels, 'Upstream Automatic', 'Upstream Failover', '自动选择', '故障转移',
     ]);
-    expect(output['proxy-groups'][2].proxies).toEqual(['自动选择', '故障转移', 'Node One', 'Node Two']);
-    expect(output['proxy-groups'][8].proxies).toEqual(['DIRECT', '自动选择', '故障转移', 'Node One', 'Node Two']);
+    expect(output['proxy-groups'][1].proxies).toEqual(['自动选择', '故障转移', 'Node One', 'Node Two']);
+    expect(output['proxy-groups'][7].proxies).toEqual(['DIRECT', '自动选择', '故障转移', 'Node One', 'Node Two']);
     expect(output.rules).toEqual([
       'RULE-SET,cc-private,DIRECT', 'RULE-SET,cc-privateip,DIRECT,no-resolve', 'RULE-SET,cc-ads,REJECT',
       ...ids.map((id, index) => `RULE-SET,cc-${id},${labels[index]}`),
@@ -138,7 +138,7 @@ describe('bounded CC YAML transformation', () => {
   it('honors configured group order and disabled logical groups', () => {
     const customized = { ...config, groups: [config.groups[6], { ...config.groups[1], enabled: false }, ...config.groups.filter((group) => group.id !== 'bilibili' && group.id !== 'google')] };
     const output = parse(transformCcProfile(upstream, customized));
-    expect(output['proxy-groups'].slice(2, 4).map((group: { name: string }) => group.name)).toEqual(['Bilibili', 'YouTube']);
+    expect(output['proxy-groups'].slice(1, 3).map((group: { name: string }) => group.name)).toEqual(['Bilibili', 'YouTube']);
     expect(output['rule-providers']['cc-google']).toBeUndefined();
     expect(output.rules.some((rule: string) => rule.includes('cc-google'))).toBe(false);
   });
@@ -152,8 +152,10 @@ describe('bounded CC YAML transformation', () => {
   it('does not use a direct-only upstream group as the default proxy policy', () => {
     const directOnly = upstream.replaceAll('proxies: [Node One, Node Two]', 'proxies: [DIRECT]');
     const output = parse(transformCcProfile(directOnly, config));
-    expect(output['proxy-groups'].slice(0, 2).map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移']);
-    expect(output['proxy-groups'][2].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
+    expect(output['proxy-groups'][0].name).toBe('Manual Nodes');
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '自动选择').proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '故障转移').proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'][1].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
     expect(output.rules.at(-1)).toBe('MATCH,自动选择');
   });
 
@@ -180,6 +182,111 @@ describe('bounded CC YAML transformation', () => {
 
   it('rejects oversized input before parsing', () => {
     expect(() => transformCcProfile('x'.repeat(CC_MAX_YAML_BYTES + 1), config)).toThrow();
+  });
+});
+
+describe('REG-M05-D1 dynamic primary upstream selector', () => {
+  it.each(['机场 A', 'My Subscription'])('places dynamic primary %s before applications with nested helpers', (name) => {
+    const source = upstream.replace('Manual Nodes', name);
+    const result = parse(transformCcProfile(source, config));
+    const groups = result['proxy-groups'];
+    expect(groups.filter((group: { hidden?: boolean }) => group.hidden !== true).map((group: { name: string }) => group.name))
+      .toEqual([name, ...labels, 'Upstream Automatic', 'Upstream Failover']);
+    expect(groups[0].proxies).toEqual(['自动选择', '故障转移', 'Upstream Automatic', 'Node One', 'Node Two']);
+    for (const helper of ['自动选择', '故障转移']) {
+      expect(groups.find((group: { name: string }) => group.name === helper).hidden).toBe(true);
+    }
+    expect(groups.find((group: { name: string }) => group.name === 'YouTube').proxies.slice(0, 2))
+      .toEqual(['自动选择', '故障转移']);
+    expect(result.proxies).toEqual(parse(source).proxies);
+    expect(result.rules.at(-1)).toBe('MATCH,自动选择');
+  });
+
+  it('preserves all original primary choices and their relative order', () => {
+    const source = upstream
+      .replace('proxies: [Upstream Automatic, Node One, Node Two]\nrules:',
+        'proxies: [Node One, Region B, DIRECT, Upstream Automatic, Node Two]\n' +
+        '  - name: Region B\n    type: select\n    proxies: [Node Two]\nrules:');
+    const result = parse(transformCcProfile(source, config));
+    expect(result['proxy-groups'][0].name).toBe('Manual Nodes');
+    expect(result['proxy-groups'][0].proxies).toEqual([
+      '自动选择', '故障转移', 'Node One', 'Region B', 'DIRECT', 'Upstream Automatic', 'Node Two',
+    ]);
+    expect(result['proxy-groups'].filter((group: { hidden?: boolean }) => group.hidden !== true).at(-1).name).toBe('Region B');
+  });
+
+  it('deduplicates helpers already present in primary choices', () => {
+    const source = upstream.replaceAll('Upstream Automatic', '自动选择')
+      .replaceAll('Upstream Failover', '故障转移')
+      .replace('proxies: [自动选择, Node One, Node Two]\nrules:',
+        'proxies: [故障转移, 自动选择, Node One, Node Two]\nrules:');
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups[0].proxies).toEqual(['自动选择', '故障转移', 'Node One', 'Node Two']);
+    expect(groups.filter((group: { name: string }) => group.name === '自动选择')).toHaveLength(1);
+    expect(groups.filter((group: { name: string }) => group.name === '故障转移')).toHaveLength(1);
+  });
+
+  it('safely reuses exact-name upstream helpers already marked hidden', () => {
+    const source = upstream.replaceAll('Upstream Automatic', '自动选择')
+      .replaceAll('Upstream Failover', '故障转移')
+      .replace('type: url-test\n', 'type: url-test\n    hidden: true\n')
+      .replace('type: fallback\n', 'type: fallback\n    hidden: true\n');
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups[0].name).toBe('Manual Nodes');
+    expect(groups[0].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
+    expect(groups.find((group: { name: string }) => group.name === '自动选择').hidden).toBe(true);
+    expect(groups.find((group: { name: string }) => group.name === '故障转移').hidden).toBe(true);
+  });
+
+  it('selects the first visible remote-reaching selector and retains other groups', () => {
+    const source = upstream.slice(0, upstream.indexOf('proxy-groups:')) + `proxy-groups:
+  - name: Local Only
+    type: select
+    proxies: [DIRECT]
+  - name: First Remote
+    type: select
+    proxies: [Node One]
+  - name: Second Remote
+    type: select
+    proxies: [Node Two]
+rules:
+  - MATCH,First Remote
+`;
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups[0].name).toBe('First Remote');
+    expect(groups[0].proxies).toEqual(['自动选择', '故障转移', 'Node One']);
+    expect(groups.filter((group: { hidden?: boolean }) => group.hidden !== true).map((group: { name: string }) => group.name))
+      .toEqual(['First Remote', ...labels, 'Local Only', 'Second Remote']);
+  });
+
+  it('keeps the legacy visible layout when no safe primary exists', () => {
+    const source = upstream.slice(0, upstream.indexOf('proxy-groups:')) + 'proxy-groups: []\n';
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups.map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移', ...labels]);
+    expect(groups[0].hidden).not.toBe(true);
+    expect(groups[1].hidden).not.toBe(true);
+  });
+
+  it('does not nest a primary referenced from a helper', () => {
+    const source = upstream.replaceAll('Upstream Automatic', '自动选择')
+      .replace('proxies: [Node One, Node Two]\n    url:', 'proxies: [Manual Nodes, Node One]\n    url:')
+      .replace('proxies: [自动选择, Node One, Node Two]\nrules:', 'proxies: [Node One, Node Two]\nrules:');
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups[0].name).toBe('自动选择');
+    expect(groups[0].hidden).not.toBe(true);
+    expect(groups.find((group: { name: string }) => group.name === 'Manual Nodes').proxies).toEqual(['Node One', 'Node Two']);
+  });
+
+  it('skips a selector that would cycle and chooses the next safe one', () => {
+    const source = upstream.replaceAll('Upstream Automatic', '自动选择')
+      .replace('proxies: [Node One, Node Two]\n    url:', 'proxies: [Manual Nodes, Node One]\n    url:')
+      .replace('proxies: [自动选择, Node One, Node Two]\nrules:',
+        'proxies: [Node One, Node Two]\n' +
+        '  - name: Other Safe Selector\n    type: select\n    proxies: [Node Two]\nrules:');
+    const groups = parse(transformCcProfile(source, config))['proxy-groups'];
+    expect(groups[0].name).toBe('Other Safe Selector');
+    expect(groups[0].proxies).toEqual(['自动选择', '故障转移', 'Node Two']);
+    expect(groups.find((group: { name: string }) => group.name === 'Manual Nodes').proxies).toEqual(['Node One', 'Node Two']);
   });
 });
 
@@ -230,9 +337,9 @@ describe('formal review findings F-01 through F-06', () => {
     expect(() => transformCcProfile(specialOnly, config)).toThrow();
     const output = parse(transformCcProfile(mixed, config));
     expect(output.proxies[0].type).toBe('direct');
-    expect(output['proxy-groups'][0].proxies).toEqual(['Node Two']);
-    expect(output['proxy-groups'][1].proxies).toEqual(['Node Two']);
-    expect(output['proxy-groups'][2].proxies).not.toContain('Node One');
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '自动选择').proxies).toEqual(['Node Two']);
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '故障转移').proxies).toEqual(['Node Two']);
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === 'YouTube').proxies).not.toContain('Node One');
     expect(() => transformCcProfile(upstream.replace('type: ss', 'type: unknown'), config)).toThrow();
   });
 
@@ -318,8 +425,8 @@ describe('formal review findings F-01 through F-06', () => {
 
   it('keeps stable managed base names when upstream names are opaque and reuses safe exact names', () => {
     const opaque = parse(transformCcProfile(upstream, config));
-    expect(opaque['proxy-groups'].slice(0, 2).map((group: { name: string }) => group.name)).toEqual(['自动选择', '故障转移']);
-    expect(opaque['proxy-groups'][2].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
+    expect(opaque['proxy-groups'][0].name).toBe('Manual Nodes');
+    expect(opaque['proxy-groups'][0].proxies.slice(0, 2)).toEqual(['自动选择', '故障转移']);
     expect(opaque.rules.at(-1)).toBe('MATCH,自动选择');
     const named = upstream.replaceAll('Upstream Automatic', '自动选择').replaceAll('Upstream Failover', '故障转移');
     const reused = parse(transformCcProfile(named, config));
@@ -345,9 +452,9 @@ describe('formal review findings F-01 through F-06', () => {
     const value = upstream.replace('proxy-groups:', '  - name: Bypass\n    type: direct\nproxy-groups:');
     const output = parse(transformCcProfile(value, config));
     expect(output.proxies.find((proxy: { name: string }) => proxy.name === 'Bypass').type).toBe('direct');
-    expect(output['proxy-groups'][0].proxies).toEqual(['Node One', 'Node Two']);
-    expect(output['proxy-groups'][1].proxies).toEqual(['Node One', 'Node Two']);
-    expect(output['proxy-groups'][2].proxies).not.toContain('Bypass');
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '自动选择').proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === '故障转移').proxies).toEqual(['Node One', 'Node Two']);
+    expect(output['proxy-groups'].find((group: { name: string }) => group.name === 'YouTube').proxies).not.toContain('Bypass');
   });
 });
 
@@ -383,7 +490,7 @@ describe('public and authenticated CC routes', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('subscription-userinfo')).toBeNull();
     expect(response.headers.get('profile-title')).toBe('CC');
-    expect(parse(await response.text())['proxy-groups'][2].name).toBe('YouTube');
+    expect(parse(await response.text())['proxy-groups'][1].name).toBe('YouTube');
     expect(String(fetcher.mock.calls[0][0])).toBe(`https://hidden.example/client/subscribe?token=${TOKEN}&flag=meta`);
     const show = await app.request(`https://gateway.example/${TOKEN}?profile=cc&info=show`, {}, env(kv));
     expect(show.headers.get('subscription-userinfo')).toBe('upload=1');
