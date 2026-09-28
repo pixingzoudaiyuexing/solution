@@ -29,7 +29,7 @@ describe('V2BoardControlPlaneClient surface and source acquisition', () => {
   it('exposes only the code-owned Registry Knowledge source operation', () => {
     expect(
       Object.getOwnPropertyNames(V2BoardControlPlaneClient.prototype).sort()
-    ).toEqual(['constructor', 'readRegistryKnowledgeSource']);
+    ).toEqual(['constructor', 'readRawKnowledgeDetail', 'readRegistryKnowledgeSource']);
   });
 
   it('does not serialize bootstrap auth, prefix, origin, or transport state', () => {

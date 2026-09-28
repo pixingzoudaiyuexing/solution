@@ -1,4 +1,4 @@
-export type DownloadPlatform = 'windows' | 'macos' | 'android' | 'linux';
+export type DownloadPlatform = 'windows' | 'macos' | 'android' | 'linux' | 'harmonyos';
 
 export interface DownloadOption {
   id: string;

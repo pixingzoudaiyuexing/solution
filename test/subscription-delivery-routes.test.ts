@@ -9,9 +9,10 @@ import { subscriptionDeliveryConfigSchema } from '../src/registry/modules/subscr
 const TOKEN = 'SYNTHETIC_TOKEN_DO_NOT_LOG_123';
 async function kvWith(origin = 'https://sub.example.com', prefix = ''): Promise<FakeKV> {
   const kv = new FakeKV();
+  const now = Date.now();
   const config = subscriptionDeliveryConfigSchema.parse({ defaultEntryId: 'primary', entries: [{ id: 'primary', label: { default: 'Subscription' }, enabled: true, selectable: true, publicOrigin: origin, pathPrefix: prefix }] });
-  const lkg = await createRegistryModuleLkg({ moduleId: 'subscription-delivery', validatedAt: Date.now(), sourceFetchedAt: Date.now(), exposure: 'authenticated', config });
-  const snapshot = await createRegistryOperationalSnapshot({ generatedAt: Date.now(), modules: [{ moduleId: 'subscription-delivery', latest: { state: RegistryValidationState.VALID_ENABLED, enabled: true }, lkg }] });
+  const lkg = await createRegistryModuleLkg({ moduleId: 'subscription-delivery', validatedAt: now, sourceFetchedAt: now, exposure: 'authenticated', config });
+  const snapshot = await createRegistryOperationalSnapshot({ generatedAt: now, modules: [{ moduleId: 'subscription-delivery', latest: { state: RegistryValidationState.VALID_ENABLED, enabled: true }, lkg }] });
   await persistRegistryOperationalSnapshot(kv.binding(), snapshot, registryOperationalDefinitions);
   return kv;
 }

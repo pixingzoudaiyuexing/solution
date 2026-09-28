@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Env } from '../../config/env';
 import { cancelUnusedResponseBody } from '../../http/response-body';
+import { readBoundedJson } from '../../http/bounded-json';
 import {
   REGISTRY_CATEGORY,
   type RegistryKnowledgeRecord,
@@ -209,6 +210,17 @@ export class V2BoardControlPlaneClient {
     return source;
   }
 
+  async readRawKnowledgeDetail(id: number): Promise<z.infer<typeof detailSchema>> {
+    const query = new URLSearchParams({ id: String(id) });
+    const payload = await this.#readJson(
+      `${this.#adminPrefix}/knowledge/fetch?${query.toString()}`,
+      1_048_576
+    );
+    const parsed = detailResponseSchema.safeParse(payload);
+    if (!parsed.success) throw new ControlPlaneError(ControlPlaneErrorCode.CONTROL_PLANE_UPSTREAM_ERROR);
+    return parsed.data.data;
+  }
+
   async #readKnowledgeList(): Promise<z.infer<typeof listItemSchema>[]> {
     const payload = await this.#readJson(
       `${this.#adminPrefix}/knowledge/fetch`
@@ -238,7 +250,7 @@ export class V2BoardControlPlaneClient {
     return parsed.data.data;
   }
 
-  async #readJson(path: string): Promise<unknown> {
+  async #readJson(path: string, maxBytes?: number): Promise<unknown> {
     let response: Response;
     try {
       response = await this.#client.fetch(path, {
@@ -277,7 +289,7 @@ export class V2BoardControlPlaneClient {
     }
 
     try {
-      return await response.json();
+      return maxBytes === undefined ? await response.json() : await readBoundedJson(response, maxBytes);
     } catch {
       throw new ControlPlaneError(
         ControlPlaneErrorCode.CONTROL_PLANE_UPSTREAM_ERROR

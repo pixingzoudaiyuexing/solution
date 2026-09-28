@@ -2,6 +2,7 @@ import type { ErrorHandler } from 'hono';
 import { AppleAutoError } from '../adapters/appleauto/shared-page';
 import {
   GatewayError,
+  HelpError,
   publicErrorResponse,
   upstreamErrorResponse,
 } from '../contract/error';
@@ -67,6 +68,14 @@ export const errorHandler: ErrorHandler = (err, c) => {
       publicErrorResponse(err.code, err.publicMessage, id),
       err.status
     );
+  }
+
+  if (err instanceof HelpError) {
+    return c.json(publicErrorResponse(
+      err.code,
+      err.code === 'HELP_ARTICLE_NOT_FOUND' ? 'Help article was not found' : 'Help content is unavailable',
+      id
+    ), err.status);
   }
 
   if (err instanceof AppleAutoError) {

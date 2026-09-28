@@ -51,7 +51,7 @@ export const resolvedDownloadItemSchema: z.ZodType<DownloadItem> = z
   .object({
     id: z.string().refine(isStableId),
     label: safePresentationText(160),
-    platform: z.enum(['windows', 'macos', 'android', 'linux']),
+    platform: z.enum(['windows', 'macos', 'android', 'linux', 'harmonyos']),
     arch: safePresentationText(64).nullable(),
     version: safePresentationText(128),
     publishedAt: isoTimestamp.nullable(),

@@ -201,7 +201,7 @@ const downloadItemBaseSchema = z
     enabled: z.boolean(),
     label: labelSchema,
     audience: z.literal('public'),
-    platform: z.enum(['windows', 'macos', 'android', 'linux']),
+    platform: z.enum(['windows', 'macos', 'android', 'linux', 'harmonyos']),
     arch: plainTextSchema(64).optional(),
     github: githubSchema,
     refreshHours: z.number().int().min(1).max(168),

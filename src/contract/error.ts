@@ -13,6 +13,8 @@ export type PublicErrorCode =
   | 'GIFT_CARD_NOT_FOUND'
   | 'GIFT_CARD_REDEEM_FAILED'
   | 'GIFT_CARD_USAGE_LIMIT_REACHED'
+  | 'HELP_ARTICLE_NOT_FOUND'
+  | 'HELP_UNAVAILABLE'
   | 'INSUFFICIENT_COMMISSION_BALANCE'
   | 'NOTICE_NOT_FOUND'
   | 'ORDER_CREATE_FAILED'
@@ -72,6 +74,13 @@ export class GatewayError extends Error {
   ) {
     super(publicMessage);
     this.name = 'GatewayError';
+  }
+}
+
+export class HelpError extends Error {
+  constructor(readonly status: 404 | 503, readonly code: 'HELP_ARTICLE_NOT_FOUND' | 'HELP_UNAVAILABLE') {
+    super(code);
+    this.name = 'HelpError';
   }
 }
 
