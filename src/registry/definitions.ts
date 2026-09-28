@@ -5,6 +5,7 @@ import { downloadCenterOperationalDefinition } from './modules/download-center';
 import { runtimeSettingsOperationalDefinition } from './modules/runtime-settings';
 import { subscriptionDeliveryOperationalDefinition } from './modules/subscription-delivery';
 import { subscriptionProfileOperationalDefinition } from './modules/subscription-profile';
+import { navigationOperationalDefinition } from './modules/navigation';
 
 export const registryOperationalDefinitions: readonly RegistryOperationalModuleDefinition<
   any,
@@ -16,4 +17,5 @@ export const registryOperationalDefinitions: readonly RegistryOperationalModuleD
   subscriptionProfileOperationalDefinition,
   announcementsOperationalDefinition,
   downloadCenterOperationalDefinition,
+  navigationOperationalDefinition,
 ];

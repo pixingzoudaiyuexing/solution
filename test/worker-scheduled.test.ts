@@ -36,9 +36,10 @@ afterEach(() => {
 });
 
 describe('Worker fetch and scheduled boundaries', () => {
-  it('preserves default Worker fetch delegation and the 57-route contract', async () => {
+  it('preserves default Worker fetch delegation and the 58-route contract', async () => {
     const routes = new Set(v1Router.routes.map((route) => `${route.method} ${route.path}`));
-    expect(routes.size).toBe(57);
+    expect(routes.size).toBe(58);
+    expect(routes).toContain('GET /navigation');
     expect(routes).toContain('GET /help/categories');
     expect(routes).toContain('GET /help/articles');
     expect(routes).toContain('GET /help/articles/:id');

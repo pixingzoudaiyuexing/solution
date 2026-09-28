@@ -34,6 +34,7 @@ describe('REG-M02 Custom Pages definition', () => {
       'subscription-profile',
       'announcements',
       'download-center',
+      'navigation',
     ]);
   });
 

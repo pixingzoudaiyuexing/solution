@@ -18,6 +18,7 @@
 | `GET /api/v1/help/categories`          | Yes            | Authenticated User Knowledge catalog |
 | `GET /api/v1/help/articles`            | Yes            | Authenticated User Knowledge search/catalog |
 | `GET /api/v1/help/articles/{id}`       | Yes            | User-visible metadata + privileged raw Knowledge detail |
+| `GET /api/v1/navigation`               | Yes            | `user/info` session validation + Registry operational snapshots |
 | `GET /api/v1/me`                       | Yes            | `user/info`                     |
 | `POST /api/v1/me/password`             | Yes            | `user/changePassword`           |
 | `GET /api/v1/me/preferences`           | Yes            | `user/info`                     |
@@ -2328,3 +2329,22 @@ An author may write `[[download:<stable-item-id>:primary]]` or `[[download:<stab
 Hard bounds: raw body 512 KiB UTF-8, Knowledge JSON 1 MiB, title/category 255 chars, ordinary catalog records 500, categories 100, AST nodes 10000, depth 32, blocks 2000, links 100, images 50, download references 50, individual text node 65536 chars. Missing/hidden/reserved/mismatched detail returns `404 HELP_ARTICLE_NOT_FOUND` (`Help article was not found`); invalid query/ID returns `400 VALIDATION_ERROR`; unavailable source/content returns `503 HELP_UNAVAILABLE` (`Help content is unavailable`). Existing unauthenticated errors remain `401 AUTH_REQUIRED` or `401 AUTH_FAILED`. Internal failure stages and raw content are not exposed.
 
 M03 Download Center additionally accepts the `harmonyos` platform. The canonical additive item is `clashbox-harmonyos`, label `ClashBox`, repository `xiaobaigroup/ClashBox`, release `latest`, arch `null`, with a literal asset matcher of suffix `.hap` and contains `ClashBox`. Existing two ordered providers and exactly-one-asset fail-closed selection remain unchanged. The item belongs in the reserved Knowledge config, not hardcoded runtime logic.
+
+## REG-M16 Navigation Registry (Solution implementation; independent review pending)
+
+`GET /api/v1/navigation` requires a Bearer credential and verifies the real V2Board session through `user/info` before any Registry read. Missing/malformed credentials return `401 AUTH_REQUIRED`; rejected credentials return `401 AUTH_FAILED`. Success is `200`, `Cache-Control: no-store`:
+
+```json
+{ "ok": true, "data": { "items": [
+  { "kind": "core", "targetId": "dashboard", "label": "Overview" },
+  { "kind": "custom-page", "itemId": "page-a", "label": "Example" }
+] }, "requestId": "request-id" }
+```
+
+The response contains only visible ordered presentation items. It never includes a route/path/href, Custom Page URL/mode, Registry source/freshness/LKG metadata, visibility flags, Admin details or Account. Navigation visibility is presentation only; hiding an item does not disable its direct route, API authentication or entitlement. Aureole owns the fixed mapping from semantic core IDs to routes and always appends its code-owned Account item last.
+
+The `navigation` Registry module uses reserved Knowledge title `registry:navigation`, schema version 1, maximum exposure `authenticated`, and `STALE_TOLERANT` freshness of 86400 seconds. Its strict config has `items` in desired order, maximum 64. Exactly one of each core target is required: `dashboard`, `subscription`, `plans`, `resources`, `apple-id`, `orders`, `wallet`, `notices`, `help-center`, `support`, `referrals`, `download-center`. `dashboard` must be visible. Each core item is `{kind:'core',targetId,visible,label?}`. A Custom Page item is `{kind:'custom-page',target:{moduleId:'custom-pages',itemId},visible,label?}`; duplicate references fail validation. Labels use `{default:string}`, trimmed plain text of 1-120 characters without markup or control characters. Core labels default to the code-owned catalog; Custom Page labels default to their current snapshot titles.
+
+Custom Page references enter the existing Registry cross-module validation. A nonexistent ID, absent or invalid Custom Pages module invalidates the fresh Navigation source; a disabled Custom Pages module or individually disabled page retains identity but has no runtime item. An explicitly hidden page is not appended later. Enabled Custom Pages omitted from Navigation config remain visible and append after configured items in Custom Pages snapshot order. Navigation never owns their URL, mode or enabled state.
+
+Latest invalid/dependency-invalid/projection-invalid config never reaches the Browser. A prior validated Navigation LKG remains usable within 86400 seconds; otherwise the compiled fallback is returned. Missing/corrupt KV, absent/disabled module, stale LKG or unexpected read failure also returns HTTP 200 with that fallback. The compiled order is `dashboard`, `subscription`, `plans`, `resources`, `apple-id`, `orders`, `wallet`, `notices`, `help-center`, `support`, `referrals`; it deliberately omits `download-center`. Current enabled Custom Pages append in either case. No response field reveals which source was used. Core targets are not hidden by transient API health or empty Help/Download content.
