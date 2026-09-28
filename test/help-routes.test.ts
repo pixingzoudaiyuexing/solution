@@ -99,6 +99,10 @@ describe('authenticated Help collection routes', () => {
     const empty = await authenticated('/api/v1/help/articles?q=registry-secret');
     expect(empty.status).toBe(200);
     expect(await empty.json()).toMatchObject({ data: { items: [], total: 0 } });
+    vi.stubGlobal('fetch', fetcher({ list: [] }));
+    const actualEmptyShape = await authenticated('/api/v1/help/articles?q=no-hits');
+    expect(actualEmptyShape.status).toBe(200);
+    expect(await actualEmptyShape.json()).toMatchObject({ data: { items: [], total: 0 } });
   });
 
   it.each(['?page=0', '?page=10001', '?pageSize=51', '?q=', `?q=${'x'.repeat(129)}`, `?category=${'x'.repeat(256)}`, '?x=1', '?q=a&q=b'])('rejects invalid query %s before upstream', async (suffix) => {
@@ -196,6 +200,7 @@ describe('authenticated Help collection routes', () => {
 
   it.each([
     { list: { Guides: 'bad' } },
+    { list: [ordinary(1, 'Not a grouped catalog')] },
     { list: { Guides: Array.from({ length: 501 }, (_, n) => ordinary(n + 1, 'x')) } },
     { list: { Guides: [ordinary(1, 'Install'), ordinary(1, 'Duplicate')] } },
   ])('returns neutral unavailable for malformed ordinary catalogs %j', async (fixture) => {

@@ -12,7 +12,7 @@ const upstreamArticle = z.object({
   category: z.string().min(1).max(255),
   updated_at: z.number().int().nonnegative().max(253_402_300_799),
 }).strip();
-const catalogResponse = z.object({ data: z.record(z.unknown()) }).strip();
+const catalogResponse = z.object({ data: z.union([z.record(z.unknown()), z.tuple([])]) }).strip();
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 export interface HelpCatalog {
@@ -40,7 +40,8 @@ export class V2BoardHelpAdapter extends V2BoardAdapterBase {
     const categories: HelpCategory[] = [];
     const items: HelpArticleSummary[] = [];
     const ids = new Set<number>();
-    for (const [category, group] of Object.entries(parsed.data.data)) {
+    const groups = Array.isArray(parsed.data.data) ? {} : parsed.data.data;
+    for (const [category, group] of Object.entries(groups)) {
       if (category === REGISTRY_CATEGORY) continue;
       if (!category || category.length > 255 || CONTROL.test(category)) throw new V2BoardUpstreamError();
       if (categories.length >= 100) throw new V2BoardUpstreamError();
