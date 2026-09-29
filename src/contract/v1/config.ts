@@ -29,6 +29,7 @@ export interface RuntimeSettingsConfig {
   logoUrl: string | null;
   faviconUrl: string | null;
   footerText: string | null;
+  crispWebsiteId: string | null;
 }
 
 export const EMPTY_RUNTIME_SETTINGS_CONFIG: RuntimeSettingsConfig = {
@@ -39,6 +40,7 @@ export const EMPTY_RUNTIME_SETTINGS_CONFIG: RuntimeSettingsConfig = {
   logoUrl: null,
   faviconUrl: null,
   footerText: null,
+  crispWebsiteId: null,
 };
 
 export interface OnboardingConfigSuccessResponse {

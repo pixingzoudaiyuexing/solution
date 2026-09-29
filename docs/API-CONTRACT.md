@@ -1744,7 +1744,7 @@ solution v1 Public Contract baseline 已冻结；后续功能只允许向后兼�
 
 A1 `SOL-REG-KERNEL-01` 只增加 internal Control Plane / Registry validation kernel，不增加或改变任何 Public Contract；真实 source route count 继续为 47。不存在 `/api/v1/registry`、`/api/v1/control-plane`、refresh/raw/maintenance 等隐藏 Public route，Browser request也不会触发 Admin Knowledge acquisition。
 
-A3 `SOL-REG-KERNEL-03` 以 additive extension 增加一个 anonymous Runtime Settings read route，使当前 route count 为 48。它是显式七字段 DTO，不是 generic Registry Browser API；不存在 Public Registry raw、health、check、refresh 或 maintenance route。
+A3 `SOL-REG-KERNEL-03` 以 additive extension 增加一个 anonymous Runtime Settings read route，使当时 route count 为 48。REG-M18 在同一路由的 DTO 中增添一个 optional-source 字段，当前为显式八字段 DTO，不是 generic Registry Browser API；不存在 Public Registry raw、health、check、refresh 或 maintenance route。
 
 SOL-REG-M04-M06-01 is `PASS / COMPLETE / CLOSED / RE-FROZEN`. Its initial implementation anchor is `96bfcb37ffa02589ee2566399a0f19816ac999b6`; the security/final runtime fix anchor is `92a9a432b46707b011c3456018fc15d836277ab1`; and the final independently reviewed/current-main anchor is `c884a73d93e240e2dddc7ea9f4e8ab58dffb736b`. Gemini review is `PASS / 0 BLOCKER / 0 HIGH / 0 MEDIUM / 0 LOW`. It adds two authenticated `/api/v1` routes, making route count 50, while preserving all legacy CF-02 and legacy access routes. `GET /subscription/delivery-options` requires current Official `user/info` entitlement and exposes only selectable Registry `subscription-delivery` `id/label`. `POST /subscription/access-link` accepts strict `entryId`, optional literal `profileId=default` and `subscriptionInfo=show|hide`; after rechecking the same current entitlement, it reads the usable 24h Registry snapshot, calls Official `user/getSubscribe`, requires exact equality between `data.token` and the exactly-one strict token parsed from `subscribe_url`, then builds the URL from code-owned `publicOrigin/pathPrefix`. OTP/time-derived mismatch, malformed/duplicate token or hidden-origin conflict fail closed, without returning or logging credentials.
 
@@ -2277,13 +2277,16 @@ Success / fallback 均返回 HTTP 200：
     "description": null,
     "logoUrl": null,
     "faviconUrl": null,
-    "footerText": null
+    "footerText": null,
+    "crispWebsiteId": null
   },
   "requestId": "request-id"
 }
 ```
 
-七个 Public fields 始终存在，类型均为 `string | null`。Registry 中缺少的 optional value 映射为 `null`；Solution 不复制 Aureole compiled defaults。`siteName`、`brandName` trim 后长度为 1 至 120，`title` 为 1 至 160，`description` 与 `footerText` 为 1 至 512；这些字段是 plain text，拒绝 markup delimiters 与 unsafe control characters。`logoUrl`、`faviconUrl` 只允许无 userinfo 的 absolute HTTPS URL，Solution 不 fetch/probe URL。
+八个 Public fields 始终存在，类型均为 `string | null`。Registry 中缺少的 optional value 映射为 `null`；Solution 不复制 Aureole compiled defaults。`siteName`、`brandName` trim 后长度为 1 至 120，`title` 为 1 至 160，`description` 与 `footerText` 为 1 至 512；这些字段是 plain text，拒绝 markup delimiters 与 unsafe control characters。`logoUrl`、`faviconUrl` 只允许无 userinfo 的 absolute HTTPS URL，Solution 不 fetch/probe URL。
+
+REG-M18 additive field `crispWebsiteId` 在 `runtime-settings` Registry config 中可省略；存在时修剪周围空白，再要求精确的 36 字符 `8-4-4-4-12` 十六进制 UUID 形状，大小写原样保留，不额外限制 UUID version。无效值使 fresh config `INVALID_SCHEMA`，现有可用 LKG 规则不变。Website ID 是公开且非密钥的配置值；有效的非 null 值表示 Aureole 后续可初始化 Crisp，`null` 表示不执行该能力。Solution 不加载 Crisp 脚本、不调用 Crisp API，也不增加新端点或鉴权要求。
 
 `runtime-settings` 使用 code-owned `STALE_TOLERANT` policy，最大 LKG age 为 `86400` 秒。`age <= 86400` 时可返回 safe LKG；超过边界、future/temporally-invalid snapshot、binding 缺失、snapshot missing/corrupt、module absent/disabled/unavailable 或没有 usable LKG 时均返回 all-null DTO。Latest validation invalid 但 retained LKG 仍在 24 小时内时可继续返回该 LKG；内部 validation/health/freshness/error reason 不进入 Public response。
 

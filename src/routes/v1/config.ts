@@ -58,6 +58,7 @@ function publicRuntimeSettings(
     logoUrl: config.logoUrl ?? null,
     faviconUrl: config.faviconUrl ?? null,
     footerText: config.footerText ?? null,
+    crispWebsiteId: config.crispWebsiteId ?? null,
   };
 }
 

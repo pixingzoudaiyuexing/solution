@@ -7,6 +7,9 @@ export const RUNTIME_SETTINGS_MAX_STALE_AGE_SECONDS = 86_400;
 
 const UNSAFE_PLAIN_TEXT_PATTERN =
   /[<>\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
+const crispWebsiteIdSchema = z.string().trim().regex(
+  /^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i
+);
 
 function plainTextSchema(maxLength: number): z.ZodType<string> {
   return z
@@ -47,6 +50,7 @@ export const runtimeSettingsConfigSchema = z
     logoUrl: httpsUrlSchema().optional(),
     faviconUrl: httpsUrlSchema().optional(),
     footerText: plainTextSchema(512).optional(),
+    crispWebsiteId: crispWebsiteIdSchema.optional(),
   })
   .strict();
 
@@ -86,5 +90,8 @@ export const runtimeSettingsOperationalDefinition: RegistryOperationalModuleDefi
     ...(config.footerText === undefined
       ? {}
       : { footerText: config.footerText }),
+    ...(config.crispWebsiteId === undefined
+      ? {}
+      : { crispWebsiteId: config.crispWebsiteId }),
   }),
 };

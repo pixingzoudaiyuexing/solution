@@ -14,6 +14,7 @@ import { FakeKV } from './helpers/fake-kv';
 
 const NOW = 200_000_000;
 const DAY_MS = 86_400_000;
+const CRISP_ID = 'f2f29d4a-625e-4613-bd18-6ae788aac471';
 const ALL_NULL = {
   siteName: null,
   brandName: null,
@@ -22,6 +23,7 @@ const ALL_NULL = {
   logoUrl: null,
   faviconUrl: null,
   footerText: null,
+  crispWebsiteId: null,
 };
 
 async function storeSnapshot(
@@ -83,7 +85,7 @@ afterEach(() => {
 });
 
 describe('GET /api/v1/config/runtime', () => {
-  it('returns all seven safe fields from a valid fresh snapshot without auth or fetch', async () => {
+  it('returns all eight safe fields from a valid fresh snapshot without auth or fetch', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     const kv = new FakeKV();
@@ -97,6 +99,7 @@ describe('GET /api/v1/config/runtime', () => {
         logoUrl: 'https://cdn.example/logo.png',
         faviconUrl: 'https://cdn.example/favicon.ico',
         footerText: 'Footer',
+        crispWebsiteId: CRISP_ID,
       })
     );
 
@@ -113,11 +116,36 @@ describe('GET /api/v1/config/runtime', () => {
         logoUrl: 'https://cdn.example/logo.png',
         faviconUrl: 'https://cdn.example/favicon.ico',
         footerText: 'Footer',
+        crispWebsiteId: CRISP_ID,
       },
       requestId: 'request-id',
     });
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('keeps a missing Crisp ID null without changing the seven original fields', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW);
+    const kv = new FakeKV();
+    await storeSnapshot(kv, await availableModule({ siteName: 'Existing Site', footerText: 'Existing Footer' }));
+    const { response, fetcher } = await requestRuntime(kv);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect((await response.json() as any).data).toEqual({ ...ALL_NULL, siteName: 'Existing Site', footerText: 'Existing Footer' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('never exposes raw Registry, Admin or LKG metadata with a configured Crisp ID', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW);
+    const kv = new FakeKV();
+    await storeSnapshot(kv, await availableModule({ crispWebsiteId: CRISP_ID }));
+    const { response } = await requestRuntime(kv);
+    const wire = await response.text();
+    expect(wire).toContain(CRISP_ID);
+    for (const forbidden of ['aureole.registry', 'registry:runtime-settings', '__AUREOLE_REGISTRY__',
+      'sourceId', 'validatedAt', 'fingerprint', 'auth_data', 'secure-admin', 'rawBody']) {
+      expect(wire).not.toContain(forbidden);
+    }
   });
 
   it('maps a partial safe config to a complete null-filled Public DTO', async () => {
@@ -329,6 +357,7 @@ describe('GET /api/v1/config/runtime', () => {
       'logoUrl',
       'faviconUrl',
       'footerText',
+      'crispWebsiteId',
     ]);
     expect(fetcher).not.toHaveBeenCalled();
   });
