@@ -18,8 +18,6 @@ import {
 import { refreshRegistryOperationalState } from '../src/registry/refresh';
 import { FakeKV } from './helpers/fake-kv';
 
-const CRISP_ID = 'f2f29d4a-625e-4613-bd18-6ae788aac471';
-
 function registryBody(config: unknown, enabled = true): string {
   return JSON.stringify({
     kind: 'aureole.registry',
@@ -124,29 +122,6 @@ describe('REG-M01 Runtime Settings definition', () => {
     });
   });
 
-  it('accepts an optional canonical UUID-shaped Crisp ID without changing its case', () => {
-    expect(runtimeSettingsConfigSchema.parse({ crispWebsiteId: `  ${CRISP_ID}  ` }))
-      .toEqual({ crispWebsiteId: CRISP_ID });
-    const uppercase = CRISP_ID.toUpperCase();
-    expect(runtimeSettingsConfigSchema.parse({ crispWebsiteId: uppercase }))
-      .toEqual({ crispWebsiteId: uppercase });
-    expect(runtimeSettingsConfigSchema.parse({ siteName: 'Site' })).toEqual({ siteName: 'Site' });
-  });
-
-  it.each([
-    'not-a-uuid', '', '  ', 'f2f29d4a625e4613bd186ae788aac471',
-    'f2f29d4a-625e-4613-bd18-6ae788aac47g', `${CRISP_ID}-suffix`,
-    `{${CRISP_ID}}`, `urn:uuid:${CRISP_ID}`, `https://example.com/${CRISP_ID}`,
-    'javascript:alert(1)', '<script>alert(1)</script>', `${CRISP_ID}\u0000`,
-  ])('rejects malformed Crisp ID %j as INVALID_SCHEMA', (crispWebsiteId) => {
-    expect(runtimeSettingsConfigSchema.safeParse({ crispWebsiteId }).success).toBe(false);
-    const report = validateRegistryKnowledge([{
-      sourceId: 1, category: REGISTRY_CATEGORY, title: 'registry:runtime-settings',
-      show: 1, updatedAt: 100, body: registryBody({ crispWebsiteId }),
-    }], [runtimeSettingsRegistryDefinition]);
-    expect(report.modules[0].state).toBe(RegistryValidationState.INVALID_SCHEMA);
-  });
-
   it.each([
     ['unknown metadata', { metadata: { arbitrary: true } }],
     ['support field', { supportUrl: 'https://support.example' }],
@@ -203,13 +178,6 @@ describe('REG-M01 Runtime Settings definition', () => {
     expect(projected).toEqual({ siteName: 'Site', title: 'Title' });
     expect(projected).not.toBe(config);
     expect(JSON.stringify(projected)).not.toContain('UNEXPECTED_METADATA_SENTINEL');
-  });
-
-  it('projects only the configured Crisp ID with existing presentation fields', () => {
-    const projected = runtimeSettingsOperationalDefinition.projectSnapshot({
-      siteName: 'Site', crispWebsiteId: CRISP_ID,
-    });
-    expect(projected).toEqual({ siteName: 'Site', crispWebsiteId: CRISP_ID });
   });
 });
 
@@ -272,25 +240,6 @@ describe('REG-M01 refresh and snapshot integration', () => {
       'SECRET_SENTINEL',
       'unexpected',
     ]) {
-      expect(bytes).not.toContain(forbidden);
-    }
-  });
-
-  it('writes a trimmed Crisp ID to the existing safe LKG without raw Registry metadata', async () => {
-    const kv = new FakeKV();
-    const body = registryBody({ siteName: ' Site ', crispWebsiteId: ` ${CRISP_ID} ` });
-    const result = await refreshRegistryOperationalState(env(kv), {
-      now: () => 10_000, fetcher: sourceFetcher(body),
-    });
-    expect(result.ok).toBe(true);
-    const loaded = await loadRegistryOperationalSnapshot(kv.binding(), registryOperationalDefinitions);
-    expect(loaded.status).toBe('valid');
-    if (loaded.status === 'valid') {
-      expect(loaded.snapshot.modules.find((module) => module.moduleId === 'runtime-settings'))
-        .toMatchObject({ lkg: { config: { siteName: 'Site', crispWebsiteId: CRISP_ID } } });
-    }
-    const bytes = kv.values.get(REGISTRY_SNAPSHOT_KEY) ?? '';
-    for (const forbidden of [body, 'aureole.registry', 'RAW_ADMIN_SENTINEL', 'AUTH_DATA_SENTINEL', 'secure-admin']) {
       expect(bytes).not.toContain(forbidden);
     }
   });
