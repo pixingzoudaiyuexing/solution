@@ -622,7 +622,7 @@ export async function createRegistryAlertState(
       : { lastAlertAt: previous.lastAlertAt }),
     recoveryPending: failing
       ? false
-      : Boolean(previous?.recoveryPending || previous?.delivery?.activeFingerprint),
+      : Boolean(previous?.delivery?.activeFingerprint),
     ...(previous?.delivery ? { delivery: previous.delivery } : {}),
   };
 }

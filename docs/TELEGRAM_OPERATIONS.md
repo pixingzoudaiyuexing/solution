@@ -48,6 +48,8 @@ validated health status/code/time fields; unknown module IDs are never echoed.
 The existing `registry:alert:v1` remains the sole derived alert record. Its optional
 `delivery` extension contains no Owner/chat IDs, credentials, raw messages or
 Knowledge. Legacy records still load. Snapshot and health schemas are unchanged.
+An observed-only legacy recovery flag is cleared on healthy refresh unless a
+confirmed delivered incident remains active; no recovery delivery is invented.
 
 - A normalized fault fingerprint must be observed three times at increasing
   check timestamps. A changed issue resets that streak; module order does not.

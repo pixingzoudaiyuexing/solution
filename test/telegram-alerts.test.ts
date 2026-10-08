@@ -96,6 +96,15 @@ describe('Telegram Registry alert delivery', () => {
     expect(alert.recoveryPending).toBe(false);
     expect(send).not.toHaveBeenCalled();
   });
+  it('migrates a legacy observed-only pending recovery without inventing a delivered incident', async () => {
+    const legacy = await faultStreak(); legacy.recoveryPending = true;
+    const recovered = health(start + 900_000);
+    const migrated = await createRegistryAlertState(recovered, legacy);
+    expect(migrated.recoveryPending).toBe(false);
+    const send = vi.fn();
+    await processTelegramAlert(telegramEnv(), recovered, migrated, recovered.checkedAt, send);
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it('round trips legacy and extended alert state without storing Telegram identities', async () => {
     const kv = new FakeKV();
