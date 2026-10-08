@@ -36,9 +36,6 @@ async function runCommand(env: Env, command: string, key: string, sequence: numb
     // A week without updates may randomize Telegram's next ID, so expire the watermark.
     const duplicate = check && Date.now() - check.checkedAt < 7 * 86_400_000 &&
       (check.updateFingerprint === key || (check.updateSequence !== undefined && sequence <= check.updateSequence));
-    if (previous && !duplicate && Date.now() - previous.lastCheckedAt < 30_000) {
-      return sendTelegramMessage(env, '刚刚已经检查过，请稍后再发送 /check。可发送 /health 查看状态。');
-    }
     try {
       const health = duplicate
         ? kv ? await loadRegistryHealth(kv) : null

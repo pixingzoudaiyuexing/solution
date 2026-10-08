@@ -68,8 +68,10 @@ confirmed delivered incident remains active; no recovery delivery is invented.
 ## Concurrency, retries and limits
 
 Cron and manual checks are serialized per KV binding within one Worker isolate.
-Completed local operations suppress another refresh within one second. Distinct
-manual checks within 30 seconds of the last observed refresh receive a wait message.
+Cron may reuse a completed local operation within one second. Every new, authorized
+manual check refreshes even just after Cron; it waits only for the remainder of the
+one-second same-key KV write interval while holding the isolate-local operation lock.
+Cron timestamps do not throttle or suppress distinct manual checks.
 An authenticated `/check` persists a completed update hash, numeric update sequence
 (not an Owner identity) and check time inside the same derived alert record. A
 duplicate/older update within seven days reads health without rerunning refresh;

@@ -21,6 +21,23 @@ function provider() {
   });
 }
 
+function protectWriteSpacing(kv: FakeKV) {
+  const writes = new Map<string, number>();
+  const put = kv.put.bind(kv);
+  kv.put = async (key, value) => {
+    const previous = writes.get(key);
+    if (previous !== undefined && Date.now() - previous < 1000) throw new Error('KV same-key write rate exceeded');
+    await put(key, value);
+    writes.set(key, Date.now());
+  };
+}
+
+function runScheduled(env: ReturnType<typeof telegramEnv>) {
+  let pending: Promise<unknown> | undefined;
+  scheduled({} as ScheduledController, env, { waitUntil: (value: Promise<unknown>) => { pending = value; } } as ExecutionContext);
+  return pending!;
+}
+
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(start); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -138,15 +155,89 @@ describe('Owner commands use existing operational health and refresh', () => {
       expect(outgoing).not.toContain(secret); expect([...kv.values.values()].join('')).not.toContain(secret);
     }
   });
-  it('throttles distinct /check commands and rejects late older retries using persisted watermark', async () => {
+  it('refreshes distinct /check commands and rejects late older retries using persisted watermark', async () => {
     const kv = new FakeKV(); const env = telegramEnv(kv); const fetcher = provider(); vi.stubGlobal('fetch', fetcher);
+    protectWriteSpacing(kv);
     await app.fetch(request(update('/check', 200)), env);
+    vi.setSystemTime(start + 1100);
     await app.fetch(request(update('/check', 201)), env);
-    expect(JSON.parse(fetcher.mock.calls.at(-1)![1]!.body as string).text).toContain('刚刚已经检查过');
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(2);
+    expect((await loadRegistryAlertState(kv.binding()))?.delivery?.lastCheck?.updateSequence).toBe(201);
     vi.setSystemTime(start + 31_000);
     await app.fetch(request(update('/check', 202)), env);
     await app.fetch(request(update('/check', 199)), env);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(3);
+    expect((await loadRegistryAlertState(kv.binding()))?.delivery?.lastCheck?.updateSequence).toBe(202);
+  });
+  it('refreshes the first Owner /check ten seconds after Cron instead of using its timestamp as a throttle', async () => {
+    const kv = new FakeKV(); const env = telegramEnv(kv); const fetcher = provider(); vi.stubGlobal('fetch', fetcher);
+    protectWriteSpacing(kv);
+    await runScheduled(env);
+    vi.setSystemTime(start + 10_000);
+    expect((await app.fetch(request(update('/check')), env)).status).toBe(200);
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(2);
+    expect((await loadRegistryHealth(kv.binding()))?.checkedAt).toBe(start + 10_000);
+    expect((await loadRegistryAlertState(kv.binding()))?.delivery?.lastCheck?.updateSequence).toBe(100);
+  });
+  it('waits only for safe KV spacing then refreshes the first Owner /check within one second of Cron', async () => {
+    const kv = new FakeKV(); const env = telegramEnv(kv); const fetcher = provider(); vi.stubGlobal('fetch', fetcher);
+    protectWriteSpacing(kv);
+    await runScheduled(env);
+    vi.setSystemTime(start + 250);
+    const reads = kv.reads.length;
+    const pending = app.fetch(request(update('/check')), env);
+    await vi.waitFor(() => expect(kv.reads.length).toBeGreaterThan(reads));
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await pending).status).toBe(200);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(2);
+    expect((await loadRegistryHealth(kv.binding()))?.checkedAt).toBeGreaterThanOrEqual(start + 1000);
+    expect((await loadRegistryAlertState(kv.binding()))?.delivery?.lastCheck?.updateSequence).toBe(100);
+  });
+  it('serializes an in-flight Cron and two distinct Owner checks without skipping checks or Download Center', async () => {
+    const kv = new FakeKV(); const env = telegramEnv(kv); const fetcher = provider();
+    protectWriteSpacing(kv);
+    let releaseCron!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseCron = resolve; });
+    let reads = 0; let active = 0; let maximumActive = 0;
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).includes('knowledge/fetch')) {
+        active++; maximumActive = Math.max(maximumActive, active);
+        if (++reads === 1) await blocked;
+        const result = await fetcher(input, init); active--; return result;
+      }
+      return fetcher(input, init);
+    }));
+    const cron = runScheduled(env);
+    await vi.waitFor(() => expect(reads).toBe(1));
+    const first = app.fetch(request(update('/check', 100)), env);
+    releaseCron(); await cron;
+    await vi.waitFor(() => expect(kv.reads.filter((key) => key === REGISTRY_ALERT_KEY)).toHaveLength(2));
+    const second = app.fetch(request(update('/check', 101)), env);
+    await vi.waitFor(() => expect(reads).toBe(3), { timeout: 3000 });
+    expect((await first).status).toBe(200); expect((await second).status).toBe(200);
+    expect(reads).toBe(3); expect(maximumActive).toBe(1);
+    expect(kv.writes.filter(({ key }) => key === REGISTRY_ALERT_KEY)).toHaveLength(3);
+    expect(kv.writes.filter(({ key }) => key === 'registry:download-center:resolved:v1')).toHaveLength(1);
+    expect((await loadRegistryAlertState(kv.binding()))?.delivery?.lastCheck?.updateSequence).toBe(101);
+  });
+  it('keeps a post-Cron /check refresh when its reply fails and does not refresh again on retry', async () => {
+    const kv = new FakeKV(); const env = telegramEnv(kv); const fetcher = provider(); let sends = 0;
+    protectWriteSpacing(kv);
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).includes('api.telegram.org') && sends++ === 0) return Response.json({ ok: false }, { status: 500 });
+      return fetcher(input, init);
+    }));
+    await runScheduled(env);
+    vi.setSystemTime(start + 10_000);
+    expect((await app.fetch(request(update('/check')), env)).status).toBe(503);
+    expect((await loadRegistryHealth(kv.binding()))?.checkedAt).toBe(start + 10_000);
+    expect((await app.fetch(request(update('/check')), env)).status).toBe(200);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(2);
+    vi.setSystemTime(start + 20_000);
+    await runScheduled(env);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('knowledge/fetch'))).toHaveLength(3);
+    expect(kv.writes.filter(({ key }) => key === 'registry:download-center:resolved:v1')).toHaveLength(2);
   });
   it('retries a failed reply without re-running the completed /check', async () => {
     const kv = new FakeKV(); const env = telegramEnv(kv); let sends = 0;

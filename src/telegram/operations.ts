@@ -19,8 +19,13 @@ export async function withRegistryOperation<T>(kv: KVNamespace | undefined, acti
 export async function refreshRegistryWithTelegram(env: Env, command?: { fingerprint: string; sequence: number }, options: RegistryRefreshOptions = {}): Promise<RegistryOperationalHealth | null> {
   const now = options.now ?? Date.now;
   const kv = env.REGISTRY_KV;
-  // Avoid back-to-back same-key writes when Cron follows a manual check locally.
-  if (kv && now() - (completedAt.get(kv) ?? -Infinity) < 1000) return loadRegistryHealth(kv);
+  // Cron may reuse a just-completed check. New manual checks must refresh,
+  // waiting only for the remaining same-key KV write interval under the lock.
+  const wait = 1000 - (now() - (kv ? completedAt.get(kv) ?? -Infinity : -Infinity));
+  if (kv && wait > 0) {
+    if (!command) return loadRegistryHealth(kv);
+    await new Promise<void>((resolve) => setTimeout(resolve, wait));
+  }
   let current: RegistryOperationalHealth | null = null;
   const result = await refreshRegistryOperationalState(env, {
     ...options,
