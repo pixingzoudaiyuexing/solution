@@ -3,12 +3,15 @@ import { v1Router } from './routes/v1';
 import { errorHandler } from './http/error-handler';
 import { strictCors } from './security/cors';
 import type { Env } from './config/env';
-import { refreshRegistryOperationalState } from './registry/refresh';
 import { subscriptionPublicRouter } from './routes/subscription-public';
 import { refreshDownloadCenterResolvedState } from './registry/download-center-refresh';
+import { telegramRouter } from './telegram/webhook';
+import { refreshRegistryWithTelegram, withRegistryOperation } from './telegram/operations';
 
 export const app = new Hono<{ Bindings: Env }>();
 
+// Internal webhook handles every method before public CORS (including OPTIONS).
+app.route('/internal/telegram', telegramRouter);
 app.use('*', strictCors);
 
 app.onError(errorHandler);
@@ -23,8 +26,11 @@ export function scheduled(
 ): void {
   ctx.waitUntil(
     (async () => {
-      await refreshRegistryOperationalState(env);
-      await refreshDownloadCenterResolvedState(env);
+      try {
+        await withRegistryOperation(env.REGISTRY_KV, () => refreshRegistryWithTelegram(env));
+      } finally {
+        await refreshDownloadCenterResolvedState(env);
+      }
     })()
   );
 }

@@ -518,6 +518,7 @@ const healthEnvelopeSchema = z
   .strict();
 
 export type RegistryOperationalHealth = z.infer<typeof healthEnvelopeSchema>;
+export type RegistryHealthCode = z.infer<typeof healthCodeSchema>;
 
 const alertEnvelopeSchema = z
   .object({
@@ -528,6 +529,22 @@ const alertEnvelopeSchema = z
     lastCheckedAt: timestampSchema,
     lastAlertAt: timestampSchema.optional(),
     recoveryPending: z.boolean(),
+    // Derived delivery metadata only: no chat IDs, messages or credentials.
+    delivery: z.object({
+      activeFingerprint: z.string().regex(SHA256_PATTERN).optional(),
+      recentAlerts: z.array(z.object({
+        fingerprint: z.string().regex(SHA256_PATTERN),
+        deliveredAt: timestampSchema,
+      }).strict()).max(16),
+      lastAttemptAt: timestampSchema.optional(),
+      lastAttemptOutcome: z.enum(['failed', 'delivered']).optional(),
+      recoveryDeliveredAt: timestampSchema.optional(),
+      lastCheck: z.object({
+        updateFingerprint: z.string().regex(SHA256_PATTERN),
+        updateSequence: z.number().int().nonnegative().safe().optional(),
+        checkedAt: timestampSchema,
+      }).strict().optional(),
+    }).strict().optional(),
   })
   .strict();
 
@@ -579,8 +596,6 @@ export async function createRegistryAlertState(
   previous: RegistryAlertState | null
 ): Promise<RegistryAlertState> {
   const failing = health.status === 'degraded' || health.status === 'error';
-  const previouslyFailing =
-    previous?.lastStatus === 'degraded' || previous?.lastStatus === 'error';
   const normalized = {
     status: health.status,
     sourceStatus: health.source.status,
@@ -589,14 +604,17 @@ export async function createRegistryAlertState(
       moduleId,
       status,
       code: code ?? null,
-    })),
+    })).sort((a, b) => a.moduleId < b.moduleId ? -1 : a.moduleId > b.moduleId ? 1 : 0),
   };
+  const fingerprint = await sha256(normalized);
   return {
     schemaVersion: REGISTRY_SNAPSHOT_SCHEMA_VERSION,
     lastStatus: health.status,
-    fingerprint: await sha256(normalized),
+    fingerprint,
     consecutiveFailures: failing
-      ? Math.min((previous?.consecutiveFailures ?? 0) + 1, 1_000_000)
+      ? previous?.fingerprint === fingerprint
+        ? Math.min(previous.consecutiveFailures + (health.checkedAt > previous.lastCheckedAt ? 1 : 0), 1_000_000)
+        : 1
       : 0,
     lastCheckedAt: health.checkedAt,
     ...(previous?.lastAlertAt === undefined
@@ -604,7 +622,8 @@ export async function createRegistryAlertState(
       : { lastAlertAt: previous.lastAlertAt }),
     recoveryPending: failing
       ? false
-      : Boolean(previous?.recoveryPending || previouslyFailing),
+      : Boolean(previous?.recoveryPending || previous?.delivery?.activeFingerprint),
+    ...(previous?.delivery ? { delivery: previous.delivery } : {}),
   };
 }
 

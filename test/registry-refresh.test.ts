@@ -646,7 +646,7 @@ describe('Registry recovery, freshness, health, and redaction', () => {
     }
   );
 
-  it('records a safe failure streak and recovery without network delivery', async () => {
+  it('records observations without inventing a delivered incident or pending recovery', async () => {
     const kv = new FakeKV();
     const definitions = [definition('module-a')];
     const failed = await refreshRegistryOperationalState(env(kv), {
@@ -681,7 +681,7 @@ describe('Registry recovery, freshness, health, and redaction', () => {
     expect(await loadRegistryAlertState(kv.binding())).toMatchObject({
       lastStatus: 'ok',
       consecutiveFailures: 0,
-      recoveryPending: true,
+      recoveryPending: false,
     });
     await refreshRegistryOperationalState(env(kv), {
       definitions,
@@ -700,7 +700,7 @@ describe('Registry recovery, freshness, health, and redaction', () => {
     expect(await loadRegistryAlertState(kv.binding())).toMatchObject({
       lastStatus: 'ok',
       consecutiveFailures: 0,
-      recoveryPending: true,
+      recoveryPending: false,
     });
     await refreshRegistryOperationalState(env(kv), {
       definitions,

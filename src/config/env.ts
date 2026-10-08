@@ -1,4 +1,7 @@
 export interface Env {
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  TELEGRAM_OWNER_USER_ID?: string;
   REGISTRY_KV?: KVNamespace;
   GITHUB_API_TOKEN?: string;
   V2BOARD_BASE_URL?: string;

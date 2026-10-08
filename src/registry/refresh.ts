@@ -25,6 +25,7 @@ import {
   persistRegistryOperationalSnapshot,
   toLatestState,
   type RegistryHealthStatus,
+  type RegistryAlertState,
   type RegistryModuleSnapshot,
   type RegistryOperationalHealth,
   type RegistryOperationalModuleDefinition,
@@ -50,6 +51,8 @@ export type RegistryRefreshResult =
     };
 
 export interface RegistryRefreshOptions {
+  // Optional derived delivery processing, folded into the existing single alert write.
+  processAlert?: (health: RegistryOperationalHealth, alert: RegistryAlertState) => Promise<RegistryAlertState>;
   definitions?: readonly RegistryOperationalModuleDefinition<any, any>[];
   fetcher?: typeof fetch;
   now?: () => number;
@@ -127,11 +130,15 @@ function controlPlaneCode(error: unknown): RegistryRefreshCode {
 
 async function persistHealthAndAlert(
   kv: KVNamespace,
-  health: RegistryOperationalHealth
+  health: RegistryOperationalHealth,
+  processAlert?: RegistryRefreshOptions['processAlert']
 ): Promise<void> {
   const previousAlert = await loadRegistryAlertState(kv);
-  const alert = await createRegistryAlertState(health, previousAlert);
+  let alert = await createRegistryAlertState(health, previousAlert);
   await persistRegistryHealth(kv, health);
+  if (processAlert) {
+    try { alert = await processAlert(health, alert); } catch { /* Delivery cannot break refresh. */ }
+  }
   await persistRegistryAlertState(kv, alert);
 }
 
@@ -221,7 +228,8 @@ export async function refreshRegistryOperationalState(
     try {
       await persistHealthAndAlert(
         kv,
-        await sourceFailureHealth(kv, definitions, checkedAt, code)
+        await sourceFailureHealth(kv, definitions, checkedAt, code),
+        options.processAlert
       );
     } catch {
       return { ok: false, snapshotWritten: false, code: 'KV_UNAVAILABLE' };
@@ -435,7 +443,7 @@ export async function refreshRegistryOperationalState(
   try {
     await persistRegistryOperationalSnapshot(kv, snapshot, definitions);
     snapshotWritten = true;
-    await persistHealthAndAlert(kv, health);
+    await persistHealthAndAlert(kv, health, options.processAlert);
   } catch {
     return { ok: false, snapshotWritten, code: 'KV_UNAVAILABLE' };
   }
