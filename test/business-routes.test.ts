@@ -57,6 +57,93 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('Product JSON features regression', () => {
+  it.each(['/api/v1/products', '/api/v1/products/7'])(
+    'returns the owner JSON feature contract through %s', async (path) => {
+      const features = [
+        { feature: '每年600GB流量', support: true },
+        { feature: '精品线路', support: false },
+      ];
+      const plan = upstreamPlan({ content: JSON.stringify(features) });
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(
+        jsonResponse({ data: path.endsWith('/7') ? plan : [plan] })
+      ));
+      const response = await authorizedRequest(path);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { data: { product?: Record<string, unknown>; products?: Record<string, unknown>[] } };
+      const product = body.data.product ?? body.data.products![0];
+      expect(product.features).toEqual(features);
+      expect(product).not.toHaveProperty('content');
+      expect(product).not.toHaveProperty('descriptionHtml');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    }
+  );
+
+  it.each([
+    [JSON.stringify([{ feature: '重复功能', support: false }, { feature: '重复功能', support: true }]),
+      [{ feature: '重复功能', support: false }, { feature: '重复功能', support: true }]],
+    [JSON.stringify([{ feature: '<script>alert(1)</script> & 中文', support: false }]),
+      [{ feature: '<script>alert(1)</script> & 中文', support: false }]],
+    [null, undefined], [undefined, undefined], ['', undefined], [' \t\n ', undefined], ['[]', undefined],
+    ['<b>PRIVATE_OLD_HTML</b>', undefined], ['[{"feature":"x","support":flase}]', undefined],
+    ['[{"feature":"x","support":"true"}]', undefined], ['[{"feature":"x","support":1}]', undefined],
+    [JSON.stringify([{ feature: 'x', support: true, token: 'PRIVATE_METADATA' }]), undefined],
+    [JSON.stringify([{ feature: 'ok', support: true }, { feature: 'bad', support: null }]), undefined],
+    [{ private_auth: 'PRIVATE_INVALID_CONTENT' }, undefined], [123, undefined],
+    [' '.repeat(16_385), undefined],
+    [JSON.stringify(Array.from({ length: 33 }, () => ({ feature: 'x', support: true }))), undefined],
+    [JSON.stringify([{ feature: 'x'.repeat(257), support: true }]), undefined],
+    ['['.repeat(5000) + '0' + ']'.repeat(5000), undefined],
+  ])('preserves list/detail parity and original commerce fields for case %#', async (content, features) => {
+    const plan = upstreamPlan({ content, private_auth: 'PRIVATE_PLAN_METADATA' });
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ data: [plan] }))
+      .mockResolvedValueOnce(jsonResponse({ data: plan })));
+    const list = await authorizedRequest('/api/v1/products');
+    const detail = await authorizedRequest('/api/v1/products/7');
+    expect(list.status).toBe(200);
+    expect(detail.status).toBe(200);
+    expect(list.headers.get('cache-control')).toBe('no-store');
+    expect(detail.headers.get('cache-control')).toBe('no-store');
+    const listBody = await list.json() as { data: { products: Record<string, unknown>[] } };
+    const detailBody = await detail.json() as { data: { product: Record<string, unknown> } };
+    expect(listBody.data.products[0]).toEqual(detailBody.data.product);
+    const product = detailBody.data.product;
+    if (features === undefined) expect(product).not.toHaveProperty('features');
+    else expect(product.features).toEqual(features);
+    expect(product).not.toHaveProperty('descriptionHtml');
+    expect(JSON.stringify([listBody, detailBody])).not.toMatch(/PRIVATE_|private_auth|private\.example|opaque-token|"content"/);
+    const { features: ignored, ...originalFields } = product;
+    expect(originalFields).toEqual({
+      id: '7', name: 'Pro Plan', dataAllowanceGb: 100, speedLimitMbps: null, available: true,
+      prices: [{ billingPeriod: 'month', amountMinor: 990 }, { billingPeriod: 'year', amountMinor: 9990 },
+        { billingPeriod: 'oneTime', amountMinor: 19990 }],
+    });
+  });
+
+  it('omits one invalid description without disrupting other plans', async () => {
+    const features = [{ feature: '保留 false', support: false }];
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: [
+      upstreamPlan({ content: { token: 'PRIVATE_INVALID' } }),
+      upstreamPlan({ id: 8, content: JSON.stringify(features) }),
+    ] })));
+    const response = await authorizedRequest('/api/v1/products');
+    expect(response.status).toBe(200);
+    const body = await response.json() as { data: { products: Record<string, unknown>[] } };
+    expect(body.data.products[0]).not.toHaveProperty('features');
+    expect(body.data.products[1]).toMatchObject({ id: '8', features });
+  });
+
+  it.each(['/api/v1/products', '/api/v1/products/7'])('retains the authentication gate for %s', async (path) => {
+    const upstreamFetch = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', upstreamFetch);
+    const response = await app.request(path, {}, env);
+    expect(response.status).toBe(401);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/v1/products', () => {
   it('maps V2Board plans to the public product contract', async () => {
     const upstreamFetch = vi.fn<typeof fetch>().mockResolvedValue(

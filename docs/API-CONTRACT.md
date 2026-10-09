@@ -212,6 +212,25 @@ Gateway 只执行一次 authenticated `GET user/plan/fetch?id={id}`，不预读 
 
 Product Detail 与 Products List 复用同一 Plan-to-Product 映射。`available` 继续仅表示上游 `capacity_limit` 为 `null`/缺失或大于 0。官方 list endpoint 会用活跃用户数调整该字段，detail endpoint 则返回未调整的 Plan 字段；Gateway 不计算容量，也不伪造两个 endpoint 之间的一致性。
 
+两个 Product DTO 均可包含可选的 `features: Array<{ feature: string; support: boolean }>`。
+该字段仅来自官方 Plan `content` 中的 JSON 字符串；严格验证整个数组和每项对象，
+每项只能具有 `feature`、`support` 两个字段，不做类型转换或部分数组恢复。
+顺序、重复项、原文及 `support: false` 原样保留。资源上限为原始字符串 16,384 个
+UTF-16 code units、32 个功能项、每项原始文字 1..256 个 code units 且不能纯空白。
+null、缺失、非字符串、空白、空数组、旧 HTML、无效 JSON、结构错误或超限输入均省略
+整个 `features` 字段，不影响其他 Product 字段或套餐请求。错误和原始 `content` 不返回。
+功能文字是普通文本，即便类似 HTML 也不解析、不执行或生成 HTML；Aureole 使用普通
+React 文本节点自动转义。该展示字段不参与价格、周期、流量、限速、资格或订单判断。
+
+示例可选字段：
+
+```json
+"features": [
+  { "feature": "每年600GB流量", "support": true },
+  { "feature": "精品线路", "support": false }
+]
+```
+
 详情读取成功不代表后续 Order Create 一定成功；`POST /api/v1/orders` 及 V2Board `user/order/save` 仍是最终购买/续费资格的权威。Public DTO 不暴露 `show`、`renew`、`reset_price`、`capacity_limit`、`device_limit`、`content` 或 raw Plan model；返回 `Cache-Control: no-store`。
 
 官方 exact error `Subscription plan does not exist` 及官方中文翻译 `订阅计划不存在` 统一映射为 `404 PRODUCT_NOT_FOUND`，不区分真实不存在、hidden 不可见或 renew 不允许。部分匹配、未知错误、malformed payload、HTML 或 invalid JSON 统一 fail closed 为 `502 UPSTREAM_ERROR`；timeout 为 `504 UPSTREAM_TIMEOUT`。

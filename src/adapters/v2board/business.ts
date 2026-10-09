@@ -7,6 +7,7 @@ import type {
 import type { PublicResource } from '../../contract/resource';
 import { V2BoardAdapterBase } from './base';
 import { V2BoardClient } from './client';
+import { parsePlanFeatures } from './plan-features';
 import {
   V2BoardProductNotFoundError,
   V2BoardUpstreamError,
@@ -17,6 +18,7 @@ const planSchema = z
   .object({
     id: z.number().int().positive(),
     name: z.string().min(1),
+    content: z.unknown().optional(),
     transfer_enable: z.number().int().nonnegative(),
     speed_limit: z.number().int().nonnegative().nullable().optional(),
     capacity_limit: z.number().int().nullable().optional(),
@@ -88,9 +90,11 @@ function productPrices(plan: z.infer<typeof planSchema>): ProductPrice[] {
 }
 
 function planToProduct(plan: z.infer<typeof planSchema>): Product {
+  const features = parsePlanFeatures(plan.content);
   return {
     id: String(plan.id),
     name: plan.name,
+    ...(features === undefined ? {} : { features }),
     dataAllowanceGb: plan.transfer_enable,
     speedLimitMbps: plan.speed_limit ?? null,
     available:

@@ -19,9 +19,16 @@ export interface ProductPrice {
   amountMinor: number;
 }
 
+export interface ProductFeature {
+  feature: string;
+  support: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
+  /** Validated plain-text presentation only; never affects pricing or eligibility. */
+  features?: ProductFeature[];
   dataAllowanceGb: number;
   speedLimitMbps: number | null;
   available: boolean;
